@@ -35,41 +35,24 @@ The output is a ranked list of riders with model-implied probabilities, edge est
 
 ## 2. The Models
 
-Four models are implemented. They target different structural edges in cycling markets.
+Fifteen strategies across five categories. Four are implemented; the rest are mathematically specified and scheduled. Each targets a structural mispricing the market consistently fails to price.
 
 ---
 
-### Strategy 2: Gruppetto Frailty (Cox Proportional Hazards)
+### Pre-race form signals (Strategies 1–5)
 
-**The edge.** On mountain stages, gruppetto riders are not struggling — they are managing effort. The market prices them as poor candidates for the following day's flat stage. They are often fresher than GC riders who emptied themselves on the climb. The question is which gruppetto riders are sandbagging versus which are genuinely at their limit.
-
-**What the model does.** It fits a **Cox Proportional Hazards survival model** with rider-level random effects. Survival analysis was built to model time-to-event data (originally mortality in clinical trials). Here the "event" is abandonment (DNF or OTL) and the "time" is how long into a stage a rider held on.
-
-The hazard function for rider *i* at time *t* is:
-
-```
-lambda_i(t) = lambda_0(t) * exp(beta^T * X_i + b_i)
-```
-
-- `lambda_0(t)` — baseline hazard rate (how fast riders drop out in general)
-- `X_i` — observed covariates: GC position, seconds behind leader, whether they rode gruppetto, how much time they lost
-- `beta` — shared coefficients across all riders
-- `b_i ~ Normal(0, sigma^2)` — **frailty term**: a rider-specific random effect that captures everything the covariates don't
-
-The frailty term is the signal. A rider with a large positive `b_i` survived longer than the model predicted from their observable characteristics. They absorbed more mountain stress than their GC position and time gaps suggest. That unexplained resilience — the residual — is the hidden form indicator.
-
-Riders ranked by frailty after mountain stages are the candidates for transition stage bets. The model outputs a frailty score per rider; higher = more unexplained survival capacity.
+Overnight batch. Run on historical data, produce ranked rider lists before markets open.
 
 ---
 
-### Strategy 1: Tactical HMM (Hidden Markov Model)
+#### Strategy 1: Tactical HMM (Hidden Markov Model) — IMPLEMENTED
 
-**The edge.** A rider's time loss on any stage is a mixture of fitness and tactics. The market cannot distinguish a GC rider who legitimately cracked from one who soft-pedalled to protect a leader or save legs. If the model can separate these cases, the soft-pedaller is a bet for the next stage; the rider who cracked is not.
+**The edge.** Every time gap on a stage is a mixture of fitness and tactics. The market cannot separate a GC rider who cracked from one who soft-pedalled — they both show 2 minutes down. If the model can identify who was managing effort, that rider is a bet for the next stage. The one who cracked is not.
 
 **What the model does.** A **Hidden Markov Model** with two latent states:
 
-- **CONTESTING** — racing at capacity, time loss reflects true fitness
-- **PRESERVING** — deliberately not racing, time loss is tactical
+- **CONTESTING** — racing at capacity; time loss reflects true fitness
+- **PRESERVING** — deliberately holding back; time loss is tactical
 
 The latent state `z_{i,t}` is unobservable. The observed variable is time loss. The model posits:
 
@@ -77,49 +60,248 @@ The latent state `z_{i,t}` is unobservable. The observed variable is time loss. 
 P(z_{i,t} = PRESERVING) = sigmoid(delta_0 + delta_1 * GC_gap + delta_2 * IsHardStage)
 ```
 
-Riders far down on GC have less incentive to fight on hard stages — they are riding for other objectives. The time loss conditional on state is:
+Riders far down on GC have less incentive to fight on hard stages. Time loss conditional on state:
 
 ```
 time_loss | CONTESTING  ~ Normal(mu, sigma^2)
 time_loss | PRESERVING  ~ Normal(mu + gamma, sigma^2)
 ```
 
-`gamma` is the tactical time loss — approximately 2 minutes — constrained to be positive. The model is fitted via MCMC (Markov Chain Monte Carlo sampling of the posterior distribution).
-
-Riders with high `P(PRESERVING)` on mountain stages are flagged as candidates for the following flat stage. The model outputs the posterior probability of each state per rider per stage.
+`gamma` is the tactical time loss — approximately 2 minutes — constrained positive. Fitted via MCMC. Riders with high `P(PRESERVING)` on mountain stages are flagged for the following flat stage.
 
 ---
 
-### Strategy 6: Weather SPDE (Gaussian Process)
+#### Strategy 2: Gruppetto Frailty (Cox Proportional Hazards) — IMPLEMENTED
 
-**The edge.** ITT markets are efficient on form but often poor on weather. The start window of a long ITT can span 3–4 hours. Wind conditions 90 minutes into the window can be completely different from conditions at the start. Riders who hit a tailwind on a key exposed section versus a headwind can differ by 30–90 seconds on a 40km course — a gap that dwarfs typical margins. When weather data arrives after markets open, or when the market simply hasn't adjusted, there's edge.
+**The edge.** Gruppetto riders on a mountain stage are managing effort, not struggling. The market prices them as poor candidates for the following flat stage. They are often fresher than GC riders who emptied themselves. The question is which gruppetto riders are sandbagging versus which are at their actual limit.
 
-**What the model does.** It models the wind field along the ITT course as a **Gaussian Process** (GP) — a probability distribution over functions. The GP kernel captures:
+**What the model does.** A **Cox Proportional Hazards survival model** with rider-level random effects. The "event" is abandonment and the "time" is how long into a stage a rider held on.
 
-- Spatial correlation: nearby course segments have correlated wind
-- Temporal correlation: wind at 10:00 is more like wind at 10:30 than 14:00
+```
+lambda_i(t) = lambda_0(t) * exp(beta^T * X_i + b_i)
+```
+
+- `lambda_0(t)` — baseline hazard (how fast riders drop out in general)
+- `X_i` — covariates: GC position, seconds behind leader, gruppetto flag, time lost
+- `beta` — shared coefficients
+- `b_i ~ Normal(0, sigma^2)` — **frailty term**: rider-specific random effect capturing everything the covariates miss
+
+A large positive `b_i` means the rider survived longer than their observable characteristics predict. That unexplained resilience is the signal. Riders ranked by frailty after mountain stages are the transition-stage bets.
+
+---
+
+#### Strategy 3: Medical Communiqué (Two-Compartment PK Model)
+
+**The edge.** Crash and illness news arrives in medical communiqués with a lag, and the market prices it crudely — either ignoring it or overreacting. A pharmacokinetic model of trauma recovery gives a precise time-varying performance penalty, which the market doesn't have.
+
+**What the model does.** A **two-compartment pharmacokinetic model** treats physical trauma like a drug concentration decaying over time:
+
+```
+dC_trauma/dt = -k_el * C_trauma
+Perf(t) = Perf_baseline * (1 - C_trauma(t) / (EC_50 + C_trauma(t)))
+```
+
+`k_el` is the elimination rate — how fast a rider recovers — estimated from historical return-to-form data after documented crashes. `EC_50` is the concentration at which performance is halved. The model outputs a predicted performance penalty curve by day post-incident. When the market hasn't fully adjusted odds to match the implied penalty, there is edge.
+
+---
+
+#### Strategy 4: Youth Fade (Functional PCA on Aging Curves)
+
+**The edge.** Age-related performance decline isn't linear and isn't the same for every rider type. Sprinters fade differently from climbers. GC riders peak later. The market prices age as a blunt heuristic. The model prices it as a personalised trajectory.
+
+**What the model does.** **Functional Principal Component Analysis** applied to career performance trajectories:
+
+```
+X_i(t) = mu(t) + sum_k(xi_ik * phi_k(t)) + epsilon_i(t)
+```
+
+`mu(t)` is the population-average aging curve. `phi_k(t)` are the principal modes of variation — different shapes of career arc. `xi_ik` are rider-specific loadings that determine which mode best describes their trajectory. Riders whose current performance is above their predicted trajectory by this model are underpriced; riders below are overpriced.
+
+---
+
+#### Strategy 5: Rest Day Regression (Interrupted Time Series / BSTS)
+
+**The edge.** Rest days reset the physical state in ways the market treats as noise. Riders who were declining before a rest day often recover; riders who were peaking sometimes fade. An interrupted time series model separates the systematic rest-day effect from underlying form.
+
+**What the model does.** An **Interrupted Time Series** model with ARMA errors:
+
+```
+Y_t = beta_0 + beta_1*Time_t + beta_2*Intervention_t + beta_3*TimeAfter_t
+      + sum_j(phi_j * Y_{t-j}) + epsilon_t
+```
+
+`Intervention_t` marks the rest day. `beta_2` captures the immediate level shift; `beta_3` captures the slope change. The **Bayesian Structural Time Series (BSTS)** alternative adds a local trend component and a seasonality structure, which fits better when races span multiple rest days.
+
+---
+
+### Environmental / physical (Strategies 6–7)
+
+---
+
+#### Strategy 6: ITT Weather Arbitrage (Gaussian Process / SPDE) — IMPLEMENTED
+
+**The edge.** ITT markets are efficient on form. They are often wrong on weather. A long ITT start window spans 3–4 hours. Riders who start into a headwind on the key exposed sections versus a tailwind can differ by 30–90 seconds — a margin that swamps typical GC separations. When weather data arrives after markets open, there is a window.
+
+**What the model does.** A **Gaussian Process** over the wind field along the course:
 
 ```
 w(s, t) ~ GP(mu(s,t), K((s,t), (s',t')))
 ```
 
-For each rider, given their start time and the time-varying wind field estimate, the model integrates expected headwind/tailwind exposure along their course trajectory. Riders starting into a forecasted tailwind on the key exposed sections get a time adjustment applied to their base time trial estimate. This feeds into adjusted win probabilities.
+The kernel captures spatial correlation (nearby sections have correlated wind) and temporal correlation (conditions 30 minutes apart are more similar than conditions 3 hours apart). For each rider, the model integrates expected headwind/tailwind exposure along their trajectory given their start time. This produces an adjusted time estimate that feeds into win probabilities.
 
-The SPDE (Stochastic Partial Differential Equation) formulation is a computationally efficient approximation to a full GP — it uses a sparse matrix representation that scales to large spatial domains.
+The SPDE formulation approximates the full GP using sparse matrices — computationally tractable for large spatial domains.
 
 ---
 
-### Strategy 12: Online Changepoint Detection (BOCPD)
+#### Strategy 7: Weather Mismatch H2H (Langevin SDE)
 
-**The edge.** Live in-race betting markets on breakaway survival, stage winner, and attack confirmation move on information that arrives in real time. If the model can confirm an attack statistically before the TV feed fully processes it, or detect that a gap is structurally growing (not just noise), there is a timing edge in live markets.
+**The edge.** Head-to-head markets on cobble sectors and crosswind stages misprice handling ability. Some riders are structurally better in gusts — wider base, lower CdA, different bike setup. The market doesn't separate weather sensitivity from baseline speed.
 
-**What the model does.** Bayesian Online Changepoint Detection (BOCPD, Adams & MacKay 2007). The model maintains a posterior distribution over "run length" — the time elapsed since the most recent structural break in the time series of power readings or time gaps:
+**What the model does.** A **Langevin stochastic differential equation** for bike velocity in stochastic wind:
+
+```
+m * dv/dt = F_drive - F_drag - F_gravity + sigma_wind * xi(t)
+```
+
+`xi(t)` is white noise modelling wind gusts. The model integrates this SDE to get a distribution over finishing times for each rider under different wind scenarios. Riders with lower variance in the output — those whose times are less sensitive to wind realisation — are preferred in crosswind conditions regardless of raw speed.
+
+---
+
+### Game theory (Strategies 8–9, 11)
+
+---
+
+#### Strategy 8: Desperation Breakaway (POSG / Quantal Response Equilibrium)
+
+**The edge.** Late in a stage race, GC-irrelevant riders have strong incentive to go in breakaways. The market prices them as it would any other stage — on form. The game-theoretic model prices them on their strategic incentive, which is highest precisely when form signals are worst.
+
+**What the model does.** A **Partially Observable Stochastic Game** with states `S = (GC_positions, Stage_wins, Remaining_stages)`. Each rider's action is probabilistic, modelled via **Quantal Response Equilibrium** — a noisy best-response:
+
+```
+P(a_i | s) = exp(lambda * Q_i(s, a_i)) / sum_a(exp(lambda * Q_i(s, a)))
+```
+
+`Q_i` is the value of each action given the current state. `lambda` is the rationality parameter — how sharply riders best-respond. Riders with strong strategic incentives (GC lost, no stage win, few stages remaining) are assigned higher breakaway probability regardless of form. This is the structural mispricing.
+
+---
+
+#### Strategy 9: Super-Domestique Choke (Mixed Membership / Dirichlet Process)
+
+**The edge.** Some riders perform below their individual ability when leading domestique duties — sacrifice is priced in, but the psychological loading isn't. Other riders elevate. The market treats domestiques as a category; the model treats them as a distribution.
+
+**What the model does.** A **Mixed Membership Model** (LDA-style) with a **Dirichlet Process** prior:
+
+```
+theta_i ~ Dirichlet(alpha)
+w_{i,t} ~ sum_k(theta_{ik} * Normal(mu_k, Sigma_k))
+```
+
+Each rider is a mixture of latent types — leader, domestique, opportunist. The mixing weights `theta_i` are learned from career performance patterns. Riders with high weight on the domestique component are expected to underperform their physical ceiling when in protection duties. When the market doesn't discount for this, there is edge fading them.
+
+---
+
+#### Strategy 11: Domestique Chokehold (Hamilton-Jacobi-Bellman Differential Game)
+
+**The edge.** When a team's leader is protected by domestiques, the optimal strategy for rivals is to attack before those domestiques are dropped — forcing the leader to work earlier than planned. The market prices attacks on pace; the model prices attacks on the strategic timing of when protection expires.
+
+**What the model does.** A **differential game** between attacker and chaser, with the value function governed by the Hamilton-Jacobi-Bellman equation:
+
+```
+dV/dt + min_{u_chase} max_{u_break} [nabla_V * f(x, u_break, u_chase) + g(x)] = 0
+```
+
+The state `x` is the gap plus remaining domestique count. The model solves for the Nash equilibrium power allocation — how much effort the breakaway should commit, and when the chase will be abandoned. Riders attacking precisely when domestique protection expires have higher breakaway survival probability than the market implies.
+
+---
+
+### Real-time / live (Strategies 10, 12–13)
+
+These run within the race window. Latency requirements: under 100ms per update.
+
+---
+
+#### Strategy 10: Mechanical Incident (Marked Hawkes Process)
+
+**The edge.** Mechanical incidents (punctures, chain drops, crashes) cluster in time and space — cobble sectors, descents, bunch sprints. Markets reprice slowly after a mechanical. If the model can estimate recovery probability and time cost before the market fully adjusts, there is a window.
+
+**What the model does.** A **Marked Hawkes Process** — a self-exciting point process where each incident increases the short-term probability of further incidents:
+
+```
+lambda_t = mu + sum_{t_i < t} phi(t - t_i, m_i)
+```
+
+`phi` is the excitation kernel; `m_i` is the mark (type and severity of incident). The process captures clustering. When a rider has a mechanical, the model estimates time-to-rejoin, probability of successful chase, and residual probability of abandonment. This feeds into updated win and podium probabilities. **Dirichlet Process** updates allow the model to learn new incident patterns in real time.
+
+---
+
+#### Strategy 12: Attack Confirmation (BOCPD) — IMPLEMENTED
+
+**The edge.** Live markets on breakaway survival and stage winner move on information arriving in real time. If the model can confirm an attack is structural — not a test, not a reaction — before the TV feed processes it, there is a timing edge.
+
+**What the model does.** **Bayesian Online Changepoint Detection** (Adams & MacKay 2007). The model maintains a posterior over "run length" — time since the last structural break in the gap time series:
 
 ```
 P(r_t = k | x_{1:t}) ∝ Σ P(x_t | r_t, x_{(t-k):t}) * P(r_t | r_{t-1})
 ```
 
-At each new observation, the posterior updates in real time. When the posterior probability of a changepoint exceeds a threshold, the model classifies it as a confirmed attack. The update runs in under 100ms, which is within the reaction window for live markets.
+At each new observation the posterior updates. When the probability of a changepoint exceeds a threshold, the attack is classified as confirmed. The update runs in under 100ms.
+
+---
+
+#### Strategy 13: Gap Closing Calculus (Ornstein-Uhlenbeck + Extended Kalman Filter)
+
+**The edge.** Live markets on catch probability are priced on the current gap and eyeball assessment. The model prices on the gap dynamics — whether the gap is mean-reverting (chase will catch) or diverging (breakaway survives). These are structurally different situations that produce the same observed gap in the short run.
+
+**What the model does.** An **Ornstein-Uhlenbeck process** for the gap:
+
+```
+dG_t = theta * (mu - G_t) * dt + sigma * dW_t
+```
+
+`theta` controls mean-reversion speed; `mu` is the equilibrium gap. When `theta` is large and `G_t > mu`, the gap is closing. The **first passage time** — probability the gap hits zero by the finish — gives the catch probability directly.
+
+An **Extended Kalman Filter** estimates `theta`, `mu`, and `sigma` in real time from live timing splits. As new splits arrive, the parameter estimates update and catch probability reprices accordingly.
+
+---
+
+### Risk modelling (Strategies 14–15)
+
+---
+
+#### Strategy 14: Post-Crash Confidence (Joint Frailty Model)
+
+**The edge.** After a significant crash, the market prices the physical damage. It does not price the confidence loss — the tendency to brake earlier on descents, hold wider lines, choose less aggressive lines through technical sections. This is a separate, persistent performance penalty the market systematically underestimates.
+
+**What the model does.** A **joint frailty model** with shared random effects across multiple risk types:
+
+```
+lambda_{ij}(t) = lambda_{0j}(t) * exp(beta^T * X_{ij} + b_i + epsilon_{ij})
+```
+
+`b_i` is a rider-level shared frailty across all risk types (descent, corner, wet). `epsilon_{ij}` is risk-type-specific. A rider with high crash frailty on descents but normal frailty elsewhere is specifically exposed to technical finishes — not to flat stages. **Bayesian Networks** encode conditional dependencies between risk types, allowing targeted position-type bets rather than blanket fade.
+
+---
+
+#### Strategy 15: Rain on Cobbles (Clayton Copula + Dynamic Programming)
+
+**The edge.** Wet cobble sectors produce correlated failures across a field — when one rider punctures, others are more likely to. Markets price rider puncture probability independently. The model prices it jointly, which changes the probability that any given rider survives with the front group intact.
+
+**What the model does.** **Clayton copulas** for sector-to-sector performance correlation:
+
+```
+C_theta(u, v) = (u^{-theta} + v^{-theta} - 1)^{-1/theta}
+```
+
+`theta` controls tail dependence — how much sector failures cluster. In wet conditions `theta` rises, meaning sector outcomes become more correlated. The joint survival probability for a rider completing all cobble sectors is materially lower than the product of individual sector probabilities.
+
+**Dynamic programming** solves the optimal pacing strategy given this survival risk:
+
+```
+V_s(v) = min_{v'} [lambda_s(v') * DNF_cost + L_s/v' + V_{s+1}(v')]
+```
+
+Riders whose optimal pacing strategy deviates from what the market assumes (flat-out) have mispriced outright and H2H markets.
 
 ---
 
