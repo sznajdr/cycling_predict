@@ -1,12 +1,12 @@
 # Cycling Predict
 
-A Bayesian betting engine for professional cycling. Scrapes ProCyclingStats, fits probabilistic models that identify market mispricings, and validates them through walk-forward backtesting.
+A Bayesian betting engine for professional cycling. Scrapes ProCyclingStats, fits probabilistic models that surface market mispricings, sizes stakes via robust Kelly under CVaR constraints, and validates everything through strict walk-forward backtesting.
 
 ---
 
 ## Table of Contents
 
-1. [What the System Does](#1-what-the-system-does)
+1. [Pipeline Overview](#1-pipeline-overview)
 2. [The Models](#2-the-models)
 3. [Portfolio Construction](#3-portfolio-construction)
 4. [Backtesting](#4-backtesting)
@@ -20,87 +20,82 @@ A Bayesian betting engine for professional cycling. Scrapes ProCyclingStats, fit
 
 ---
 
-## 1. What the System Does
+## 1. Pipeline Overview
 
-Three stages:
+Three stages run sequentially. Each stage's output is the next stage's input.
 
-**Stage 1 — Data.** A scraper pulls historical results from ProCyclingStats: stage results, time gaps, startlists, rider profiles, stage metadata (type, elevation, distance). This goes into a local SQLite database.
+**Stage 1 — Scraping.** `pipeline/runner.py` hits ProCyclingStats at ~1 req/s via a persistent job queue (`fetch_queue` table). Every job is idempotent and resume-safe. Output: rider profiles, stage results, time gaps, startlists, and stage metadata (type, elevation, distance) in `data/cycling.db`.
 
-**Stage 2 — Modelling.** Statistical models fit on that historical data and produce probability estimates for riders in upcoming stages. Each model targets a specific market inefficiency — situations where the observed data implies a different probability than what the market is pricing.
+**Stage 2 — Modelling.** `genqirue/` reads from `data/cycling.db` and fits probabilistic models on the historical record. Each model answers a specific question: given what happened in stages 1..N-1, what is the probability distribution over riders for stage N? The models do not ask which rider is fastest — they ask which rider is mispriced relative to the market, given information the market has not encoded.
 
-**Stage 3 — Validation.** A walk-forward backtester replays history in strict chronological order — training only on what was available before each race, predicting each race, observing outcomes — and produces a P&L record you can interrogate. No lookahead.
+**Stage 3 — Validation.** `backtesting/engine.py` replays history in strict chronological order — train on t<T, predict T, observe outcome, advance T. The backtest produces a bet-by-bet P&L ledger. There is no lookahead at any point.
 
-The output is a ranked list of riders with model-implied probabilities, edge estimates against market odds, and Kelly-sized stakes.
+**Stage 4 — Live pricing.** `fetch_odds.py` scrapes Betclic's HTML for current cycling markets. Scraped odds feed into Stage 2's edge calculation: `edge = model_prob - (1 / market_odds)`. Without live odds, the workflow uses simulated fair-market prices.
 
 ---
 
 ## 2. The Models
 
-Fifteen strategies across five categories. Four are implemented; the rest are mathematically specified and ready for implementation. Each targets a structural mispricing the market consistently fails to price.
-
-Full mathematical specification (equations, acceptance criteria, dependency chain, dependencies): [`docs/MODELS.md`](docs/MODELS.md)
-
-Implementation guide for all 15 strategies — implemented and not yet implemented — with usage examples, data inputs, outputs, integration points, and per-strategy acceptance criteria: [`docs/ENGINE.md`](docs/ENGINE.md)
+Fifteen strategies across five categories. Four are implemented; the rest are mathematically specified and ready for implementation. Full mathematical specification (equations, priors, acceptance criteria, dependency chain): [`docs/MODELS.md`](docs/MODELS.md). Implementation guide with data inputs, outputs, code examples, and per-strategy acceptance criteria for all 15: [`docs/ENGINE.md`](docs/ENGINE.md).
 
 ---
 
 ### Pre-race form signals (Strategies 1–5)
 
-Overnight batch. Run on historical data, produce ranked rider lists before markets open.
+Overnight batch. Train on historical data, produce ranked rider lists before markets open.
 
 ---
 
-#### Strategy 1: Tactical HMM (Hidden Markov Model) — IMPLEMENTED
+#### Strategy 1: Tactical HMM — IMPLEMENTED
 
-**The edge.** Every time gap on a stage is a mixture of fitness and tactics. The market cannot separate a GC rider who cracked from one who soft-pedalled — they both show 2 minutes down. If the model can identify who was managing effort, that rider is a bet for the next stage.
+**Mispricing.** Every time gap is a mixture of fitness and tactics. The market cannot separate a GC contender who cracked from one who soft-pedalled on a climbing stage — both show 2 minutes down. A rider in the PRESERVING state on a mountain stage is underpriced on the following flat.
 
-**What the model does.** A Hidden Markov Model with two latent states:
-
-- **CONTESTING** — racing at capacity; time loss reflects true fitness
-- **PRESERVING** — deliberately holding back; time loss is tactical
+**Model.** Two-state Hidden Markov Model with emission probabilities conditioned on observed gap and stage type:
 
 ```
 P(z_{i,t} = PRESERVING) = sigmoid(δ_0 + δ_1 · ΔGC_{i,t} + δ_2 · StageType_t)
 ```
 
-Riders with high `P(PRESERVING)` on mountain stages are flagged for the following flat stage.
+`z_{i,t} ∈ {CONTESTING, PRESERVING}` is latent. Viterbi decoding recovers the most probable state sequence; riders with `P(PRESERVING) > 0.7` on mountain stages are flagged for the following stage.
 
 ---
 
-#### Strategy 2: Gruppetto Frailty (Cox Proportional Hazards) — IMPLEMENTED
+#### Strategy 2: Gruppetto Frailty — IMPLEMENTED
 
-**The edge.** Gruppetto riders on a mountain stage are managing effort, not struggling. The market prices them as poor candidates for the following flat stage. The question is which gruppetto riders are sandbagging versus which are at their actual limit.
+**Mispricing.** Gruppetto finishers on mountain stages are managing effort. The market prices them as poor candidates for the following flat. The question is which gruppetto riders are sandbagging versus which are genuinely at their limit.
 
-**What the model does.** A Cox Proportional Hazards survival model with rider-level random effects:
+**Model.** Cox Proportional Hazards with rider-level frailty:
 
 ```
-λ_i(t) = λ_0(t) · exp(β^T · X_i + b_i)
+λ_i(t) = λ_0(t) · exp(β^T · X_i + b_i),   b_i ~ Normal(0, σ²)
 ```
 
-`b_i ~ Normal(0, σ²)` is the **frailty term** — rider-specific random effect capturing everything the covariates miss. A large positive `b_i` means the rider survived longer than their observable characteristics predict. That unexplained resilience is the signal.
+The frailty term `b_i` is the rider-specific random effect absorbing everything the observable covariates miss. Large positive `b_i` — the rider survived substantially longer than form, weight, and recent performance predict. That excess is the signal.
 
 ---
 
 #### Strategy 3: Medical Communiqué (Two-Compartment PK Model)
 
-**The edge.** Crash and illness news arrives with a lag and is priced crudely. A pharmacokinetic model gives a precise time-varying performance penalty:
+**Mispricing.** Crash and illness information arrives with a lag and is priced crudely as a binary flag. The pharmacokinetic model gives a continuous, time-decaying performance penalty:
 
 ```
 dC_trauma/dt = -k_el · C_trauma
 Perf(t) = Perf_baseline · (1 - C_trauma(t) / (EC_50 + C_trauma(t)))
 ```
 
+Market treats the rider as either "out" or "fine". The model prices the E-max curve between those poles.
+
 ---
 
 #### Strategy 4: Youth Fade (Functional PCA on Aging Curves)
 
-**The edge.** Age-related decline is not linear and not the same across rider types. The market prices age as a blunt heuristic; the model prices it as a personalised trajectory via Functional PCA on career performance curves.
+**Mispricing.** Age-related decline is nonlinear, heterogeneous across rider types, and priced by the market as a blunt heuristic. Functional PCA on career-length performance trajectories estimates a personalised decline function `X_i(t) = μ(t) + Σ_k ξ_{ik} · φ_k(t) + ε_i(t)` — the market uses the population mean `μ(t)`; the model uses the individual trajectory.
 
 ---
 
 #### Strategy 5: Rest Day Regression (Interrupted Time Series / BSTS)
 
-**The edge.** Rest days reset physical state in ways the market treats as noise. An interrupted time series model separates the systematic rest-day effect from underlying form.
+**Mispricing.** Rest days produce a systematic physical reset the market treats as noise. A Bayesian Structural Time Series model decomposes form into trend, seasonality, and a rest-day intervention component — isolating the causal effect of the rest day from underlying trajectory.
 
 ---
 
@@ -110,22 +105,22 @@ Perf(t) = Perf_baseline · (1 - C_trauma(t) / (EC_50 + C_trauma(t)))
 
 #### Strategy 6: ITT Weather Arbitrage (Gaussian Process / SPDE) — IMPLEMENTED
 
-**The edge.** A long ITT start window spans 3–4 hours. Riders who start into a headwind on key exposed sections versus a tailwind can differ by 30–90 seconds — swamping typical GC separations.
+**Mispricing.** An ITT start window spans 3–4 hours. Riders who start into a headwind on key exposed sections vs. a tailwind can differ by 30–90 seconds — swamping typical GC separations. The market prices on expected conditions; the model prices on the full wind-field distribution.
 
-**What the model does.** A Gaussian Process over the wind field along the course:
+**Model.** Gaussian Process over the spatiotemporal wind field along the route:
 
 ```
 w(s, t) ~ GP(μ(s,t), K((s,t), (s',t')))
 ΔT = ∫_0^D [P/F_aero(v_wind(t_early)) - P/F_aero(v_wind(t_late))] dx
 ```
 
-The SPDE formulation approximates the GP using sparse matrices for computational tractability.
+The SPDE formulation (via R-INLA or PyMC-BART sparse matrices) makes the full-field GP computationally tractable. Output is an expected time-gap delta between early and late starters at each aero-critical segment.
 
 ---
 
 #### Strategy 7: Weather Mismatch H2H (Langevin SDE)
 
-**The edge.** H2H markets on cobble sectors misprice handling ability. The Langevin SDE model gives each rider a distribution over finishing times under different wind realisations — riders with lower output variance are preferred in crosswind regardless of raw speed.
+**Mispricing.** H2H markets on cobble sectors price riders on raw speed. The Langevin SDE assigns each rider a distribution over finishing times under different wind realisations. Riders with lower output variance (smoother power application, better handling) are underpriced in crosswind H2H regardless of FTP.
 
 ---
 
@@ -135,7 +130,7 @@ The SPDE formulation approximates the GP using sparse matrices for computational
 
 #### Strategy 8: Desperation Breakaway (POSG / Quantal Response Equilibrium)
 
-**The edge.** Late-race GC-irrelevant riders have high strategic incentive to attack regardless of form. The market prices them on form; the model prices them on incentive.
+**Mispricing.** Riders who are GC-irrelevant have high strategic incentive to attack irrespective of form — the expected value of a solo win dominates the expected value of a peloton sprint. Market prices them on form; the model prices them on incentive structure via Quantal Response Equilibrium:
 
 ```
 P(a_i | s) = exp(λ · Q_i(s, a_i)) / Σ_a exp(λ · Q_i(s, a))
@@ -145,43 +140,49 @@ P(a_i | s) = exp(λ · Q_i(s, a_i)) / Σ_a exp(λ · Q_i(s, a))
 
 #### Strategy 9: Super-Domestique Choke (Mixed Membership / Dirichlet Process)
 
-**The edge.** Some riders perform below their individual ability when leading domestique duties. The market treats domestiques as a category; the Dirichlet Process model treats them as a distribution of latent types.
+**Mispricing.** Some riders systematically underperform their individual ability on days when they are leading domestique duties. The market treats domestique as a role that cancels form; the Dirichlet Process model identifies latent rider types — some respond to leadership duties with elevated performance, some suppress it.
 
 ---
 
 #### Strategy 11: Domestique Chokehold (Hamilton-Jacobi-Bellman Differential Game)
 
-**The edge.** The optimal time to attack a protected leader is before the domestiques are dropped. The Hamilton-Jacobi-Bellman equation gives the Nash equilibrium power allocation and when the chase will be abandoned.
+**Mispricing.** The optimal moment to attack a protected leader is before the domestiques are dropped, not after — because after, the protected rider can accelerate freely. The HJB differential game gives the Nash equilibrium power allocation and the threshold crossing at which the chase is rationally abandoned. Markets price on the leader's advantage; the model prices on the structural gap between equilibrium power and sustainable power.
 
 ---
 
 ### Real-time / live (Strategies 10, 12–13)
 
-Latency requirement: under 100ms per update.
+Target latency: under 100ms per update.
 
 ---
 
 #### Strategy 10: Mechanical Incident (Marked Hawkes Process)
 
-**The edge.** Mechanical incidents cluster in time and space. The Hawkes process captures self-exciting clustering; updated win probabilities incorporate time-to-rejoin and abandonment probability before the market reprices.
+**Mispricing.** Mechanical incidents cluster in time and space. The Hawkes process captures self-exciting clustering across riders: `λ_t = μ + Σ φ(t - t_i, m_i)`. When an incident occurs, updated win probabilities incorporate time-to-rejoin distribution and abandonment probability before the live market reprices.
 
 ---
 
 #### Strategy 12: Attack Confirmation (BOCPD) — IMPLEMENTED
 
-**The edge.** Live markets on breakaway survival move on information in real time. Bayesian Online Changepoint Detection confirms whether an attack is structural before the TV feed processes it.
+**Mispricing.** Live markets on breakaway survival move on TV coverage, which lags the GPS/power data by 15–30 seconds. Bayesian Online Changepoint Detection on live power metrics confirms whether a pace change is structural or noise before the feed processes it:
 
 ```
 P(r_t = k | x_{1:t}) ∝ Σ P(x_t | r_t, x_{(t-k):t}) · P(r_t | r_{t-1})
 ```
 
-Updates in under 100ms (Numba-accelerated). Bet when `P(changepoint) > 0.8` AND yesterday's Z-score > 2.0.
+Implemented with Numba JIT: updates in <50ms. Bet signal: `P(changepoint) > 0.8` AND prior-stage Z-score > 2.0.
 
 ---
 
 #### Strategy 13: Gap Closing Calculus (Ornstein-Uhlenbeck + Extended Kalman Filter)
 
-**The edge.** Catch probability is priced on the current gap and eyeball assessment. The OU process prices on gap dynamics — mean-reverting (chase will catch) versus diverging (breakaway survives). The EKF estimates parameters in real time from live timing splits.
+**Mispricing.** Catch probability is priced on current gap and eyeball peloton speed. The OU process on gap dynamics distinguishes mean-reverting (chase closes, breakaway caught) from diverging (gap expands, breakaway survives):
+
+```
+dG_t = θ(μ - G_t)dt + σ dW_t
+```
+
+The EKF estimates `(θ, μ, σ)` in real time from live timing splits. When `θ̂` is strongly positive and the gap is above `μ`, the breakaway is structural — the market is underpricing survival.
 
 ---
 
@@ -191,67 +192,62 @@ Updates in under 100ms (Numba-accelerated). Bet when `P(changepoint) > 0.8` AND 
 
 #### Strategy 14: Post-Crash Confidence (Joint Frailty Model)
 
-**The edge.** The market prices physical crash damage. It does not price confidence loss — earlier braking, wider lines, less aggressive positioning. A joint frailty model with shared random effects across risk types (descent, corner, wet) isolates the persistent confidence penalty.
+**Mispricing.** The market prices physical crash damage (time out, injuries). It does not price the persistent confidence penalty — earlier braking into corners, wider lines, less aggressive positioning on descents. A joint frailty model with shared random effects across risk types (descent speed, corner commitment, wet-road exposure) isolates the confidence component from the physical recovery curve.
 
 ---
 
 #### Strategy 15: Rain on Cobbles (Clayton Copula + Dynamic Programming)
 
-**The edge.** Wet cobble sectors produce correlated failures. Clayton copulas model joint survival probability across sectors:
+**Mispricing.** Wet cobble sectors produce correlated failures — a rider who punctures or crashes on sector 1 is more likely to abandon than expected given only sector-1 difficulty, because the stress compounds. Clayton copulas model the joint tail dependence across sectors:
 
 ```
 C_θ(u, v) = (u^{-θ} + v^{-θ} - 1)^{-1/θ}
 ```
 
-Dynamic programming solves optimal pacing given this survival risk, identifying riders whose actual strategy deviates from the flat-out assumption the market uses.
+Dynamic programming on the resulting joint survival surface gives optimal pacing per sector. Riders whose implied strategy (from their power output profile) deviates from the DP-optimal strategy are flagged as misprice candidates.
 
 ---
 
 ## 3. Portfolio Construction
 
-Kelly fraction maximises expected log-wealth:
+Kelly fraction: `f* = (b·p - (1-p)) / b`. The system defaults to **quarter-Kelly** — full Kelly is theoretically optimal but catastrophically sensitive to model miscalibration. Quarter-Kelly trades ~30% of long-run growth for a roughly 4× reduction in drawdown variance.
 
-```
-f* = (b·p - (1-p)) / (b - 1)
-```
-
-**The system defaults to quarter-Kelly** (`f = f*/4`). Full Kelly is theoretically optimal but sensitive to model miscalibration.
-
-**Robust Kelly** shrinks stakes when the model provides a posterior standard deviation `σ_p`:
+**Robust Kelly** shrinks `f*` when the model supplies a posterior standard deviation `σ_p` on its probability estimate:
 
 ```
 f_robust = f_kelly · (1 - γ · σ_p² · b² / p²)
 ```
 
-**Portfolio-level constraints** via CVXPY:
-- No single position > 25% of bankroll
+Higher posterior uncertainty → tighter sizing. The penalty scales with leverage `b` — a high-odds bet under an uncertain model is penalised more than the same uncertainty at short odds.
+
+**Portfolio-level constraints** (CVXPY, `genqirue/portfolio/kelly.py`):
+- Single-position cap: 25% of bankroll
 - Portfolio variance bounded above
 - CVaR at 95% bounded above
-
-CVaR (Conditional Value at Risk) is the expected loss in the worst 5% of scenarios — a tail risk measure that matters more than variance for betting books where ruin is permanent.
 
 ---
 
 ## 4. Backtesting
 
-Walk-forward validation — no lookahead at any point:
+Walk-forward validation — strict temporal ordering, no lookahead:
 
 ```
-training_data = all stage results from races that finished BEFORE this race
-for each stage S in the race:
-    training_data += stages 1 to S-1 of this race
-    fit model on training_data
-    predict stage S
-    record actual outcome and P&L
+for each race R in chronological order:
+    training_data = all results from races that completed before R
+    for each stage S in R:
+        training_data += stages 1..(S-1) of R
+        fit model on training_data
+        predict stage S
+        record outcome → P&L ledger
 ```
 
 Three strategies tested:
 
-| Strategy | What it tests |
-|----------|--------------|
-| `frailty` | Do high-frailty gruppetto riders podium more on transition stages? |
-| `tactical` | Do riders flagged as PRESERVING outperform on the following flat stage? |
-| `baseline` | Random selection — the null hypothesis |
+| Strategy | Signal |
+|----------|--------|
+| `frailty` | High-frailty gruppetto riders on transition stages |
+| `tactical` | Riders in PRESERVING state on mountain → following flat |
+| `baseline` | Random selection (null hypothesis) |
 
 ---
 
@@ -279,7 +275,7 @@ cycling_predict/
 |   |   `-- kelly.py            # Robust Kelly + CVaR optimiser
 |   |-- domain/
 |   |   |-- entities.py         # RiderState, MarketState, Position, Portfolio
-|   |   `-- enums.py            # StageType, TacticalState, MarketType, etc.
+|   |   `-- enums.py            # StageType, TacticalState, MarketType
 |   `-- data/
 |       `-- schema_extensions.sql  # Betting tables on top of the scraping schema
 |
@@ -287,12 +283,12 @@ cycling_predict/
 |   |-- engine.py               # Walk-forward backtester
 |   `-- __init__.py
 |
-|-- docs/                       # All documentation
-|   |-- MODELS.md               # Mathematical specification of all 15 strategies
-|   |-- ENGINE.md               # Implementation guide — all strategies, data flow, acceptance criteria
+|-- docs/
+|   |-- MODELS.md               # Mathematical specification — all 15 strategies
+|   |-- ENGINE.md               # Implementation guide — data flow, acceptance criteria
 |   |-- SCRAPE.md               # Scraping pipeline — schema, job types, execution flow
-|   |-- ODDS.md                 # Betclic odds scraper — step-by-step walkthrough
-|   `-- DEPLOYMENT.md           # Production deployment, Docker, cron, monitoring
+|   |-- ODDS.md                 # Betclic scraper — walkthrough and troubleshooting
+|   `-- DEPLOYMENT.md           # Production: Docker, cron, PostgreSQL, monitoring
 |
 |-- config/
 |   `-- races.yaml              # Which races and years to scrape
@@ -303,20 +299,18 @@ cycling_predict/
 |
 |-- tests/
 |   |-- betting/
-|   |   `-- test_strategies.py  # Strategy unit tests (no network)
+|   |   `-- test_strategies.py  # Unit tests (no network)
 |   |-- test_connection.py      # PCS connectivity check
 |   |-- test_race.py            # Race meta + startlist roundtrip
 |   `-- test_rider.py           # Rider scrape + DB roundtrip
 |
 |-- data/cycling.db             # Created by scraper, not in git
-|-- logs/                       # Runtime logs, not in git
-|-- fetch_odds.py               # CLI for Betclic odds scraping
+|-- fetch_odds.py               # Betclic odds CLI
 |-- run_backtest.py             # Backtest CLI
 |-- example_betting_workflow.py # End-to-end worked example
-|-- quickstart.py               # Quick demo (no config required)
-|-- reset_stage_jobs.py         # One-time migration helper
+|-- quickstart.py               # Quick demo (no scraped data required)
 |-- monitor.py                  # Watch scraping progress
-|-- COMMANDS.md                 # Complete CLI and SQL command reference
+|-- COMMANDS.md                 # Complete CLI and SQL reference
 `-- CONTRIBUTING.md             # Development workflow and standards
 ```
 
@@ -326,12 +320,12 @@ cycling_predict/
 
 **Requirements:** Python 3.11 or 3.13.
 
-The scraping library (`procyclingstats`) must live in the folder adjacent to this project:
+The scraping library (`procyclingstats`) must live adjacent to this project:
 
 ```
 parent_folder/
   cycling_predict/    <- this repo
-  procyclingstats/    <- scraping library, cloned separately
+  procyclingstats/    <- cloned separately
 ```
 
 Install:
@@ -339,18 +333,8 @@ Install:
 ```bash
 pip install -e ../procyclingstats
 pip install -r requirements.txt
-```
-
-Apply all database schemas:
-
-```bash
-python fetch_odds.py --init-schema
-```
-
-Verify:
-
-```bash
-python quickstart.py
+python fetch_odds.py --init-schema   # apply all DB schemas
+python quickstart.py                 # verify
 ```
 
 Automated setup for a new team member:
@@ -363,9 +347,9 @@ python scripts/setup_team.py
 
 ## 7. Running It
 
-### Scrape data
+### Scrape
 
-Configure `config/races.yaml`:
+Configure which races and years in `config/races.yaml`:
 
 ```yaml
 year: 2026
@@ -382,27 +366,20 @@ races:
     history_years: [2021, 2022, 2023, 2024, 2025]
 ```
 
-Run:
-
 ```bash
 python -m pipeline.runner
+python monitor.py          # watch progress in a second terminal
 ```
 
-Safe to stop (Ctrl+C) and resume at any time — the queue persists. Takes ~20–60 minutes per race (rate-limited to ~1 req/sec). Monitor in a second terminal:
+Rate-limited to ~1 req/s. Safe to stop (Ctrl+C) and resume — the queue persists. Each race takes 20–60 minutes depending on history depth. Full schema and job-type reference: [`docs/SCRAPE.md`](docs/SCRAPE.md).
 
-```bash
-python monitor.py
-```
-
-See [`docs/SCRAPE.md`](docs/SCRAPE.md) for the full schema reference, job type documentation, execution flow, and resume-safety details.
-
-### Run the example workflow
+### Fit models and generate signals
 
 ```bash
 python example_betting_workflow.py
 ```
 
-Fits the frailty and tactical models on your scraped data and prints a portfolio report.
+Fits the frailty and tactical models on your scraped data, queries live odds from `bookmaker_odds_latest`, and prints a portfolio report with edge estimates and Kelly stakes.
 
 ### Run the backtest
 
@@ -415,38 +392,29 @@ python run_backtest.py --strategy frailty --kelly 0.1 --save-bets bets.csv
 
 ## 8. Live Odds (Betclic)
 
-The models produce probabilities. To compute edge and Kelly fractions you need market odds. `fetch_odds.py` scrapes Betclic's cycling hub and stores every selection into `bookmaker_odds`. The workflow uses real prices when a rider matches; falls back to simulated odds otherwise.
-
-### First-time schema setup
+`fetch_odds.py` scrapes Betclic's cycling hub page, parses market blocks from raw HTML via regex (`"name":"([^"]+)",[^{]{0,200}?"odds":([\d.]+)`), computes hold-adjusted fair odds (`fair_prob = implied_prob / Σ implied_probs`), and inserts every selection into `bookmaker_odds`. Each run gets a UUID `scrape_run_id`; the `bookmaker_odds_latest` view returns the most recent snapshot per selection.
 
 ```bash
+# Apply schema (first time)
 python fetch_odds.py --init-schema
-```
 
-### Test before writing anything
-
-```bash
+# Test a single event without writing to DB
 python fetch_odds.py --dry-run --event-url <betclic-event-url>
-```
 
-Prints rider names, raw odds, hold-adjusted fair odds, and the implied overround — no DB writes.
-
-### Full hub scrape
-
-```bash
+# Full hub scrape → DB
 python fetch_odds.py
 ```
 
-Discovers every live cycling event, extracts odds, inserts rows into `bookmaker_odds`. Each run gets a UUID `scrape_run_id`; the `bookmaker_odds_latest` view always reflects the most recent snapshot per selection.
-
-### Run on a schedule
+Schedule for live coverage:
 
 ```bash
-# Every 30 minutes, 06:00–22:00 (Linux/macOS)
+# Every 30 minutes, 06:00–22:00 (Linux/macOS cron)
 */30 6-22 * * * cd /path/to/cycling-predict && python fetch_odds.py >> logs/odds.log 2>&1
 ```
 
-See [`docs/ODDS.md`](docs/ODDS.md) for the full walkthrough: market type mappings, H2H row handling, name-matching logic, troubleshooting, and extending the classifier.
+Name matching between Betclic selections and the `riders` table uses a two-pass join: exact Unicode match, then accent-stripped ASCII fallback. When no match is found, `example_betting_workflow.py` falls back to simulated fair-market odds.
+
+Full walkthrough — market type mappings, H2H row handling, troubleshooting, classifier extension: [`docs/ODDS.md`](docs/ODDS.md).
 
 ---
 
@@ -459,19 +427,20 @@ tactical        27      4    3.7%   3.7%    39.6%   1070.61   11.3%     0.000
 baseline        93      4    1.1%   0.0%   -52.0%    596.34   45.3%     0.000
 ```
 
-**Top3%** — Podium rate across all bets. In a field of ~150 riders, the naive rate is 2% (3/150). Frailty at 5.6% is roughly 3× the null.
+**Top3% vs. null.** In a field of ~150, the naive top-3 rate is 2%. Frailty at 5.6% is 2.8× the null — consistent with a real signal, but the confidence interval is wide at n=72.
 
-**ROI** — Profit over total staked, against a simulated fair market (no bookmaker margin). Real bookmakers take 5–15% margin — translate accordingly.
+**ROI** is against a simulated fair market (zero margin). Real books take 5–15%; adjust accordingly. A strategy that looks marginally positive here may be negative against the actual overround.
 
-**MaxDD** — Maximum peak-to-trough bankroll decline. 15% is manageable; above 40–50% becomes a serious issue even with positive long-run expectation.
+**MaxDD** is peak-to-trough bankroll decline. 15% on frailty is consistent with quarter-Kelly sizing. MaxDD above 40–50% on a positive-expectation strategy usually means over-sizing or a model calibration problem.
 
-**Spearman** — Rank correlation between model scores and actual finishing positions. With 72 bets, the threshold for p < 0.05 is approximately ρ > 0.23. Export to CSV and run the test:
+**Spearman ρ = 0.077** on 72 bets is not significant (p < 0.05 threshold ≈ ρ > 0.23). The rank correlation signal needs more data to resolve from noise.
+
+**Sample size.** With 72 bets, the standard error on the 5.6% top-3 rate is ~2.7%. The frailty edge over the 2% null is 1.3 standard errors — directionally interesting, not conclusive. Target 200+ bets before treating any metric as stable. To get there: scrape 3–4 years across Paris-Nice, Critérium du Dauphiné, Tour de Suisse, and the three grand tours.
 
 ```bash
 python run_backtest.py --save-bets bets.csv
+# then run Spearman test on the exported CSV
 ```
-
-**The sample size problem.** With 72 bets, the standard error on the 5.6% top-3 rate is approximately 2.7%. The gap over the 2% naive baseline is 1.3 standard errors — suggestive, not conclusive. You need roughly 200+ bets before the numbers stabilise. Scrape 3–4 years of Paris-Nice, Criterium du Dauphine, Tour de Suisse, and the three grand tours to get there.
 
 ---
 
@@ -482,64 +451,63 @@ python run_backtest.py --save-bets bets.csv
 pip install -e ../procyclingstats && pip install -r requirements.txt
 python fetch_odds.py --init-schema
 
-# Scrape PCS data
+# Scrape
 python -m pipeline.runner
-python monitor.py                    # watch progress
+python monitor.py
 
-# Betclic odds
-python fetch_odds.py --dry-run --event-url <url>   # test single event
-python fetch_odds.py --dry-run                     # test full hub
-python fetch_odds.py                               # full scrape → DB
-
-# Verify odds stored
+# Odds
+python fetch_odds.py --dry-run --event-url <url>
+python fetch_odds.py --dry-run
+python fetch_odds.py
 python -c "import sqlite3; conn = sqlite3.connect('data/cycling.db'); print(conn.execute('SELECT market_type, COUNT(*) FROM bookmaker_odds GROUP BY market_type').fetchall())"
 
-# Betting workflow
+# Models and workflow
 python quickstart.py
 python example_betting_workflow.py
 
-# Backtesting
+# Backtest
 python run_backtest.py
 python run_backtest.py --strategy frailty --kelly 0.1 --save-bets bets.csv
 
-# Testing
-pytest tests/betting/ -v             # unit tests (no network)
-pytest tests/ -v                     # all tests
+# Tests
+pytest tests/betting/ -v     # unit tests, no network
+pytest tests/ -v             # all tests
 
 # Reset stuck scraping jobs
 python -c "import sqlite3; conn = sqlite3.connect('data/cycling.db'); conn.execute(\"UPDATE fetch_queue SET status='pending' WHERE status='in_progress'\"); conn.commit()"
 ```
 
-See [`COMMANDS.md`](COMMANDS.md) for the complete reference including all SQL queries, scheduling, monitoring, and git workflow.
+Complete reference — SQL queries, scheduling, monitoring, git workflow: [`COMMANDS.md`](COMMANDS.md).
 
 ---
 
 ## 11. Troubleshooting
 
-**"ModuleNotFoundError: No module named 'procyclingstats'"**
+**`ModuleNotFoundError: No module named 'procyclingstats'`**
 ```bash
 pip install -e ../procyclingstats
 ```
 
-**"ValueError: HTML from given URL is invalid"**
-PCS is rate-limiting. Wait 5–10 minutes and restart. The queue resumes safely.
+**`ValueError: HTML from given URL is invalid`**
+PCS is rate-limiting. Wait 5–10 minutes; the queue resumes from where it stopped.
 
-**"sqlite3.OperationalError: no such table"**
-If the missing table is `bookmaker_odds` or `bookmaker_odds_latest`: run `python fetch_odds.py --init-schema`. For other tables, no PCS data has been scraped yet — run `python -m pipeline.runner` first.
+**`sqlite3.OperationalError: no such table`**
+- If the missing table is `bookmaker_odds` or `bookmaker_odds_latest`: `python fetch_odds.py --init-schema`
+- Otherwise: no PCS data scraped yet — run `python -m pipeline.runner` first
 
-**Jobs stuck "in_progress"**
-The scraper crashed mid-job. Reset:
+**Jobs stuck `in_progress`**
+Scraper crashed mid-job:
 ```bash
 python -c "import sqlite3; conn = sqlite3.connect('data/cycling.db'); conn.execute(\"UPDATE fetch_queue SET status='pending' WHERE status='in_progress'\"); conn.commit()"
 ```
 
 **Frailty backtest shows 0 bets**
-The frailty model generates signals from mountain stage data. If the first race in the database has no prior history, or has no mountain stages, it produces no output. Scrape multiple races across multiple years.
+The frailty model needs mountain-stage data to generate signals. If the database contains only flat races, or the first race has no prior history, output is empty. Scrape multiple races across multiple years.
 
 **PyMC/pytensor warning about g++**
-Cosmetic. Models still run. To fix: `conda install gxx`. To suppress: set env variable `PYTENSOR_FLAGS=cxx=`.
+Cosmetic — models run. To suppress: set `PYTENSOR_FLAGS=cxx=`. To fix: `conda install gxx`.
 
-**No odds matching in `_lookup_real_odds`**
+**No odds matched in `_lookup_real_odds`**
 ```bash
 python -c "
 import sqlite3; conn = sqlite3.connect('data/cycling.db')
@@ -547,4 +515,4 @@ print(conn.execute(\"SELECT DISTINCT participant_name FROM bookmaker_odds WHERE 
 print(conn.execute(\"SELECT name FROM riders WHERE name LIKE '%name%'\").fetchall())
 "
 ```
-See [`docs/ODDS.md`](docs/ODDS.md) for name-matching details and how to extend the classifier for unrecognised French market labels.
+See [`docs/ODDS.md`](docs/ODDS.md) for name-matching details and how to extend the French market label classifier.
