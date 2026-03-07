@@ -525,6 +525,76 @@ conda install gxx
 
 ---
 
+## Step 5: Backtesting
+
+Validate whether your models actually work before betting real money.
+
+### Run the backtest
+
+```powershell
+# Run all strategies and compare
+python run_backtest.py
+
+# Run a single strategy
+python run_backtest.py --strategy frailty
+python run_backtest.py --strategy tactical
+python run_backtest.py --strategy baseline
+
+# Save every bet to a CSV for deeper analysis
+python run_backtest.py --save-bets bets.csv
+```
+
+### What it does
+
+The backtester uses **walk-forward validation** — for each race it trains models only on data from races that finished before it, then predicts that race. No lookahead. This is the only valid way to test a betting model.
+
+**Three strategies are compared:**
+
+| Strategy | What it tests |
+|----------|--------------|
+| `frailty` | Strategy 2: do riders with high gruppetto frailty podium more? |
+| `tactical` | Strategy 1: do riders in "preserving" state outperform after mountain stages? |
+| `baseline` | Random selection (control — your models should beat this) |
+
+**How to read the results:**
+
+```
+Strategy      Bets  Races   Top3%   Win%      ROI  Bankroll   MaxDD  Spearman
+frailty         72      4    5.6%   1.4%   136.8%   1686.74   15.0%     0.077
+tactical        27      4    3.7%   3.7%    39.6%   1070.61   11.3%     0.000
+baseline        93      4    1.1%   0.0%   -52.0%    596.34   45.3%     0.000
+```
+
+- **Top3% > naive baseline (3/field_size)** = model has real signal
+- **ROI > 0%** = model beats an equal-odds market
+- **Spearman > 0** = predicted scores rank-correlate with actual results
+- **Compare vs baseline** — that's your null hypothesis
+
+### Customise parameters
+
+```powershell
+# More conservative Kelly fraction
+python run_backtest.py --kelly 0.1
+
+# Bet on stage wins instead of podiums
+python run_backtest.py --no-top3
+
+# Adjust how many riders to bet on per stage
+python run_backtest.py --top-k 5
+
+# Start with a different bankroll
+python run_backtest.py --bankroll 5000
+```
+
+### Important caveats
+
+- With only 4 races in the database the sample is too small to trust ROI numbers
+- Scrape more races and years first, then rerun
+- ROI is simulated against a **fair equal-odds market** (no bookmaker margin) — real market odds will be worse
+- The `signal_boost` assumption (default 2×) affects Kelly stake sizing — once you have 20+ races of data, calibrate this against actual top-3 rates
+
+---
+
 ## Next Steps
 
 ### 1. Learn the Models
@@ -602,6 +672,12 @@ python example_betting_workflow.py
 
 # Run your script
 python my_prediction.py
+
+# Backtest all strategies (walk-forward, no lookahead)
+python run_backtest.py
+
+# Backtest and save every bet to CSV
+python run_backtest.py --save-bets bets.csv
 
 # Reset stuck jobs
 python -c "import sqlite3; conn = sqlite3.connect('data/cycling.db'); conn.execute(\"UPDATE fetch_queue SET status='pending' WHERE status='in_progress'\"); conn.commit(); conn.close()"
