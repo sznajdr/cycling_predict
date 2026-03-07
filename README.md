@@ -40,6 +40,8 @@ Fifteen strategies across five categories. Four are implemented; the rest are ma
 
 Full mathematical specification (equations, acceptance criteria, dependency chain, dependencies): [`docs/MODELS.md`](docs/MODELS.md)
 
+Implementation guide for all 15 strategies — implemented and not yet implemented — with usage examples, data inputs, outputs, integration points, and per-strategy acceptance criteria: [`docs/ENGINE.md`](docs/ENGINE.md)
+
 ---
 
 ### Pre-race form signals (Strategies 1–5)
@@ -286,10 +288,10 @@ cycling_predict/
 |   `-- __init__.py
 |
 |-- docs/                       # All documentation
-|   |-- MODELS.md               # Full mathematical specification of all 15 strategies
+|   |-- MODELS.md               # Mathematical specification of all 15 strategies
+|   |-- ENGINE.md               # Implementation guide — all strategies, data flow, acceptance criteria
 |   |-- SCRAPE.md               # Scraping pipeline — schema, job types, execution flow
 |   |-- ODDS.md                 # Betclic odds scraper — step-by-step walkthrough
-|   |-- ENGINE.md               # Betting engine — implemented strategies and usage
 |   `-- DEPLOYMENT.md           # Production deployment, Docker, cron, monitoring
 |
 |-- config/
