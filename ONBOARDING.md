@@ -3,21 +3,6 @@
 
 ---
 
-### Reading the Race Communiqué → Two-Compartment PK Model (Strategy 3)
-
-A rider crashes on Stage 4. The communiqué says "superficial abrasions, will continue." You know recovery is a curve, not a binary — somewhere between fine tomorrow and limping through the mountains for a week. You discount them partially, with the discount decaying over subsequent stages.
-
-The pharmacokinetic model makes that curve explicit:
-
-```
-dC_trauma/dt = -k_el · C_trauma
-Perf(t) = Perf_baseline · (1 - C_trauma(t) / (EC_50 + C_trauma(t)))
-```
-
-`C_trauma` is trauma concentration decaying at elimination rate `k_el`. The performance penalty follows an E-max sigmoid — small trauma yields a small penalty, large trauma a large one, with diminishing marginal sensitivity at extremes. Parameters are estimated from historical crash-recovery data across riders.
-
-The market treats the rider as either out or fine. The model prices the continuous recovery curve between those poles. When the implied recovery is faster than the market assumes, the rider is a buy; when slower, a fade.
-
 ---
 
 ### Pricing Form After a Rest Day → Interrupted Time Series (Strategy 5)
