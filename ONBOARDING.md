@@ -1,12 +1,5 @@
 # Onboarding
 
-A guide for people who understand cycling markets and probability but are new to this codebase.
-
----
-
-## Part 1: Your Mental Models, Formalized
-
-The models in this system encode decisions you already make intuitively. This section maps each strategy to its betting rationale and the mathematical structure that implements it.
 
 ---
 
