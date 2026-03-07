@@ -52,10 +52,10 @@ Open your terminal/command prompt in the project folder:
 
 ```powershell
 # Windows PowerShell
-cd C:\Users\danie\Downloads\nkls\cycling_predict
+cd path/to/cycling_predict
 
 # Install the procyclingstats library (required for scraping)
-pip install -e ..\procyclingstats
+pip install -e ../procyclingstats
 
 # Install all other dependencies
 pip install -r requirements.txt
@@ -475,10 +475,10 @@ hmm = TacticalTimeLossHMM()
 
 ```powershell
 # Make sure you're in the right directory
-cd C:\Users\danie\Downloads\nkls\cycling_predict
+cd path/to/cycling_predict
 
 # Install the library
-pip install -e ..\procyclingstats
+pip install -e ../procyclingstats
 ```
 
 ### "ValueError: HTML from given URL is invalid"
@@ -652,7 +652,7 @@ plt.show()
 
 ```powershell
 # Setup
-pip install -e ..\procyclingstats
+pip install -e ../procyclingstats
 pip install -r requirements.txt
 
 # Test

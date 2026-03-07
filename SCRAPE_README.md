@@ -56,7 +56,7 @@ cycling_predict/
 ### Install dependencies
 
 ```bash
-cd C:\Users\danie\Downloads\nkls\cycling_predict
+cd path/to/cycling_predict
 
 # Install the procyclingstats library in editable mode from the sibling folder
 pip install -e ../procyclingstats
@@ -842,7 +842,7 @@ to `logging.DEBUG`.
 ### First time (fresh start)
 
 ```bash
-cd C:\Users\danie\Downloads\nkls\cycling_predict
+cd path/to/cycling_predict
 
 # 1. Verify tests pass
 python tests/test_connection.py

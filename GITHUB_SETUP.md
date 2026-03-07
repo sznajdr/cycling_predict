@@ -52,7 +52,7 @@ git push -u origin main
 
 Example:
 ```powershell
-git remote add origin https://github.com/johndoe/cycling-predict.git
+git remote add origin https://github.com/your-username/cycling-predict.git
 ```
 
 ---
@@ -200,7 +200,7 @@ Set up PostgreSQL on Railway or AWS (see DEPLOYMENT.md)
 ### "fatal: not a git repository"
 
 ```powershell
-cd C:\Users\danie\Downloads\nkls\cycling_predict
+cd path/to/cycling_predict
 git init
 git add .
 git commit -m "Initial commit"

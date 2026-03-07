@@ -62,3 +62,10 @@ htmlcov/
 
 # OS
 Thumbs.db
+
+# Claude Code session files
+.claude/
+
+# Generated backtest output
+*.csv
+backtest_results*
