@@ -1,0 +1,62 @@
+year: 2026  # Primary prediction year
+
+races:
+  # - name: Tour de France
+  #   pcs_slug: tour-de-france
+  #   type: stage_race
+  #   history_years: [2021, 2022, 2023, 2024, 2025]
+
+  # - name: Giro d'Italia
+  #   pcs_slug: giro-d-italia
+  #   type: stage_race
+  #   history_years: [2021, 2022, 2023, 2024, 2025]
+
+  # - name: Vuelta a España
+  #   pcs_slug: vuelta-a-espana
+  #   type: stage_race
+  #   history_years: [2021, 2022, 2023, 2024, 2025]
+
+  # - name: Milano-Sanremo
+  #   pcs_slug: milano-sanremo
+  #   type: one_day
+  #   history_years: [2021, 2022, 2023, 2024, 2025]
+
+  # - name: Tour of Flanders
+  #   pcs_slug: ronde-van-vlaanderen
+  #   type: one_day
+  #   history_years: [2021, 2022, 2023, 2024, 2025]
+
+  # - name: Paris-Roubaix
+  #   pcs_slug: paris-roubaix
+  #   type: one_day
+  #   history_years: [2021, 2022, 2023, 2024, 2025]
+
+  # - name: Liège-Bastogne-Liège
+  #   pcs_slug: liege-bastogne-liege
+  #   type: one_day
+  #   history_years: [2021, 2022, 2023, 2024, 2025]
+
+  # - name: Amstel Gold Race
+  #   pcs_slug: amstel-gold-race
+  #   type: one_day
+  #   history_years: [2021, 2022, 2023, 2024, 2025]
+
+  # - name: La Flèche Wallonne
+  #   pcs_slug: fleche-wallonne
+  #   type: one_day
+  #   history_years: [2021, 2022, 2023, 2024, 2025]
+
+   - name: Paris-Nice
+     pcs_slug: paris-nice
+     type: stage_race
+     history_years: [2022, 2023, 2024, 2025]
+
+  # - name: Tirreno-Adriatico
+  #   pcs_slug: tirreno-adriatico
+  #   type: stage_race
+  #   history_years: [2022, 2023, 2024, 2025]
+
+  # - name: Critérium du Dauphiné
+  #   pcs_slug: criterium-du-dauphine
+  #   type: stage_race
+  #   history_years: [2022, 2023, 2024, 2025]
