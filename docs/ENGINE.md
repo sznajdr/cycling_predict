@@ -105,7 +105,7 @@ v_wind(s,t) ~ GP(0, k((s,t), (s',t')))
 
 **Concept**: Kelly-optimal bet sizing with uncertainty penalty and CVaR tail risk constraints.
 
-**Formula** (from PLAN.md):
+**Formula** (see `docs/MODELS.md`):
 ```
 f* = (b*p̂ - q)/b * (1 - σ²(p̂)*(b+1)²/(p̂²*(b+1)²))
 ```
@@ -140,10 +140,10 @@ The betting engine extends the base `cycling.db` schema with tables for:
 
 Apply extensions:
 ```bash
-sqlite3 data/cycling.db < genqirue/data/schema_extensions.sql
+python fetch_odds.py --init-schema
 ```
 
-## Critical Implementation Order (from PLAN.md)
+## Critical Implementation Order
 
 1. **Strategy 2** (Gruppetto Frailty) - provides frailty scores used by Strategies 1, 3, 4, 14
 2. **Strategy 12** (Online Changepoint) - highest value real-time signal

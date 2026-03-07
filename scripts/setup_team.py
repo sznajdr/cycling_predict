@@ -257,9 +257,10 @@ def print_next_steps():
     print("   python example_betting_workflow.py")
     
     print("\n5. Read the docs:")
-    print("   - README.md - Getting started guide")
-    print("   - genqirue/README.md - Model documentation")
-    print("   - SCRAPE_README.md - Scraping details")
+    print("   - README.md          - Getting started guide")
+    print("   - COMMANDS.md        - Complete CLI reference")
+    print("   - docs/ENGINE.md     - Model documentation")
+    print("   - docs/SCRAPE.md     - Scraping pipeline details")
     
     print("\n" + "="*60)
 

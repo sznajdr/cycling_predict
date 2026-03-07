@@ -1,227 +1,290 @@
-# Contributing to Cycling Predict
+# Contributing
 
-Thank you for contributing! This guide will help you get set up and follow our workflow.
+Guidelines for contributing code, data, and documentation to this project.
 
-## Quick Start for Team Members
+---
 
-### 1. Clone the Repository
+## Table of Contents
+
+1. [Getting Started](#1-getting-started)
+2. [Repository Setup](#2-repository-setup)
+3. [Daily Workflow](#3-daily-workflow)
+4. [Adding a New Strategy](#4-adding-a-new-strategy)
+5. [Code Standards](#5-code-standards)
+6. [Testing Requirements](#6-testing-requirements)
+7. [Database Changes](#7-database-changes)
+8. [Pull Request Checklist](#8-pull-request-checklist)
+9. [GitHub Administration](#9-github-administration)
+
+---
+
+## 1. Getting Started
+
+### Clone and install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/cycling-predict.git
+git clone https://github.com/your-org/cycling-predict.git
 cd cycling-predict
-```
 
-### 2. Install Dependencies
-
-```bash
-# Install the procyclingstats library (required for scraping)
-pip install -e ../procyclingstats
-
-# Install all other dependencies
+pip install -e ../procyclingstats   # sibling repo — required for scraping
 pip install -r requirements.txt
+
+python fetch_odds.py --init-schema  # apply all DB schemas
 ```
 
-### 3. Verify Setup
+### Verify the setup
 
 ```bash
-# Run tests
-python tests/test_connection.py
-python tests/test_rider.py
-python tests/test_race.py
-
-# Run quick demo
-python quickstart.py
+python tests/test_connection.py     # PCS connectivity
+python tests/test_rider.py          # scrape + DB roundtrip
+python tests/test_race.py           # race meta roundtrip
+python quickstart.py                # end-to-end demo (requires scraped data)
 ```
 
-## Development Workflow
+All tests should print `PASS`. If `test_connection.py` fails, PCS is rate-limiting — wait a few minutes and retry.
 
-### Branch Naming
+---
 
-- `feature/strategy-X-description` - New strategy implementation
-- `bugfix/description` - Bug fixes
-- `docs/description` - Documentation updates
-- `data/race-name-year` - Adding new race data
+## 2. Repository Setup
 
-### Making Changes
+### Creating the remote (first time only)
 
-1. **Create a branch:**
 ```bash
+# Create a private repository on GitHub, then:
+git remote add origin https://github.com/your-org/cycling-predict.git
+git branch -M main
+git push -u origin main
+```
+
+### Authentication
+
+Use a Personal Access Token (PAT) rather than a password:
+
+1. GitHub → Settings → Developer settings → Personal access tokens → Generate new token (classic)
+2. Scopes: select `repo`
+3. Use the token as the password when prompted by git
+
+Or use the GitHub CLI:
+
+```bash
+gh auth login
+```
+
+### Branch protection (recommended)
+
+In the repository settings under Branches, add a rule for `main`:
+
+- Require a pull request before merging
+- Require at least one approval
+- Require status checks to pass before merging
+- Require conversation resolution before merging
+
+---
+
+## 3. Daily Workflow
+
+```bash
+# 1. Pull latest main
+git pull origin main
+
+# 2. Create a branch
 git checkout -b feature/strategy-3-medical-pk
-```
 
-2. **Make your changes**
+# 3. Make changes
 
-3. **Test locally:**
-```bash
+# 4. Test
 pytest tests/betting/test_strategies.py -v
 python quickstart.py
-```
 
-4. **Commit with clear messages:**
-```bash
-git add .
-git commit -m "Strategy 3: Implement Medical PK model
+# 5. Stage only the files you changed
+git add genqirue/models/medical_pk.py tests/betting/test_strategies.py
 
-- Two-compartment pharmacokinetic model
+# 6. Commit with a clear message
+git commit -m "Strategy 3: two-compartment PK model for trauma recovery
+
+- Implements dC_trauma/dt = -k_el * C_trauma with EC50 performance effect
 - Robust Kelly sizing with posterior uncertainty
-- SQL schema for pk_parameters table"
-```
+- Unit tests for parameter estimation and edge calculation"
 
-5. **Push and create Pull Request:**
-```bash
+# 7. Push and open a PR
 git push origin feature/strategy-3-medical-pk
 ```
 
-## Code Style
+### Branch naming
 
-- Follow PEP 8
-- Use type hints where possible
-- Add docstrings to all public functions
-- Keep functions focused and small
+| Prefix | Use for |
+|--------|---------|
+| `feature/` | New strategy or feature |
+| `bugfix/` | Bug fix |
+| `docs/` | Documentation changes only |
+| `data/` | Race config changes |
 
-### Example:
+---
 
-```python
-def calculate_kelly_fraction(
-    prob: float, 
-    odds: float,
-    prob_std: Optional[float] = None
-) -> float:
-    """
-    Calculate Kelly-optimal bet fraction.
-    
-    Args:
-        prob: Estimated win probability
-        odds: Decimal odds from market
-        prob_std: Standard deviation of probability (for robust Kelly)
-    
-    Returns:
-        Optimal fraction of bankroll to bet
-    """
-    # Implementation here
-    pass
-```
+## 4. Adding a New Strategy
 
-## Database Changes
+All 15 strategies are mathematically specified in `docs/MODELS.md`. To implement one:
 
-When modifying the database schema:
+1. Create `genqirue/models/<strategy_name>.py` — inherit from `BayesianModel` in `base.py`
+2. Implement required methods: `build_model()`, `fit()`, `predict()`, `get_edge()`
+3. Add SQL schema changes to `genqirue/data/schema_extensions.sql` if new tables are needed
+4. Add tests in `tests/betting/test_strategies.py`
+5. Export the class from `genqirue/models/__init__.py`
+6. Update the status table in `docs/ENGINE.md`
 
-1. Add changes to `genqirue/data/schema_extensions.sql`
-2. Create migration scripts in `migrations/`
-3. Test on a copy of the database first
-
-## Adding New Strategies
-
-See `PLAN.md` for the 15 strategies. To add a new one:
-
-1. Create file: `genqirue/models/strategy_name.py`
-2. Inherit from `BayesianModel` or appropriate base class
-3. Implement required methods: `build_model()`, `fit()`, `predict()`, `get_edge()`
-4. Add SQL schema if needed
-5. Add tests in `tests/betting/test_strategies.py`
-6. Update `genqirue/models/__init__.py`
-7. Update `genqirue/README.md`
-
-### Strategy Template:
+### Strategy template
 
 ```python
 """
-Strategy X: Description
+Strategy N: Description
+
+Targets: <the market mispricing>
+Model:   <the mathematical approach>
 """
 from typing import Dict, Any
 from genqirue.models.base import BayesianModel, StrategyMixin
 
+
 class NewStrategyModel(BayesianModel, StrategyMixin):
-    """Description of the strategy."""
-    
-    def __init__(self, model_name="new_strategy"):
+    """One-line description."""
+
+    def __init__(self, model_name: str = "new_strategy"):
         super().__init__(model_name=model_name)
-    
+
     def build_model(self, data: Dict[str, Any]):
-        """Build PyMC model."""
+        """Build the PyMC model."""
         pass
-    
-    def predict(self, new_data: Dict[str, Any]):
-        """Generate predictions."""
+
+    def fit(self, data: Dict[str, Any]):
+        """Fit the model to historical data."""
         pass
-    
+
+    def predict(self, new_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate win probability predictions with uncertainty."""
+        pass
+
     def get_edge(self, prediction: Dict[str, Any], market_odds: float) -> float:
-        """Calculate betting edge in basis points."""
+        """Return edge in basis points. Positive = value bet."""
         pass
 ```
-
-## Testing
-
-Run all tests before submitting:
-
-```bash
-# All tests
-pytest tests/ -v
-
-# Specific test file
-pytest tests/betting/test_strategies.py -v
-
-# With coverage
-pytest tests/ --cov=genqirue --cov-report=html
-```
-
-## Data Sharing
-
-The SQLite database (`data/cycling.db`) is **not** in git (it's in `.gitignore`).
-
-To share data with the team:
-
-1. **Export specific races:**
-```bash
-python scripts/export_race_data.py --race tour-de-france --year 2024
-```
-
-2. **Share via cloud storage** (Google Drive, Dropbox, etc.)
-
-3. **Or use a shared database** (PostgreSQL, ClickHouse - see deployment guide)
-
-## Environment Setup
-
-Use a virtual environment:
-
-```bash
-# Create
-python -m venv venv
-
-# Activate (Windows)
-venv\Scripts\activate
-
-# Activate (Mac/Linux)
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-## Questions?
-
-- Check `README.md` for basic usage
-- Check `SCRAPE_README.md` for scraping details
-- Check `genqirue/README.md` for model documentation
-- Open an issue on GitHub
-
-## Code Review Checklist
-
-Before submitting a PR:
-
-- [ ] Tests pass
-- [ ] Code follows style guide
-- [ ] Docstrings added
-- [ ] Type hints included
-- [ ] SQL schema updated if needed
-- [ ] README updated if needed
-- [ ] No large binary files added
-- [ ] .gitignore updated if needed
-
-## Deployment
-
-For production deployment, see `DEPLOYMENT.md`.
 
 ---
 
-Happy coding! 🚴‍♂️📊
+## 5. Code Standards
+
+- Follow PEP 8
+- Type hints on all public function signatures
+- Docstrings on all public classes and functions
+- Functions should be short and do one thing
+- No hardcoded paths — use `Path(__file__).parent` or arguments
+- No personal names, local paths, or credentials in any committed file
+
+### Example
+
+```python
+def calculate_kelly_fraction(
+    prob: float,
+    odds: float,
+    prob_std: float | None = None,
+) -> float:
+    """
+    Calculate Kelly-optimal bet fraction with optional uncertainty penalty.
+
+    Args:
+        prob:     Estimated win probability.
+        odds:     Decimal odds from market.
+        prob_std: Posterior std of probability estimate (for robust Kelly).
+
+    Returns:
+        Optimal fraction of bankroll to bet. Clipped to [0, 0.25].
+    """
+    b = odds - 1
+    f = (b * prob - (1 - prob)) / b
+    if prob_std is not None:
+        f *= 1 - prob_std**2 * (b + 1)**2 / (prob**2 * (b + 1)**2)
+    return max(0.0, min(f, 0.25))
+```
+
+---
+
+## 6. Testing Requirements
+
+- All new strategies need unit tests in `tests/betting/test_strategies.py`
+- Unit tests must run without network access (mock HTTP calls)
+- Network tests (`tests/test_connection.py`, `tests/test_rider.py`, `tests/test_race.py`) are integration tests — do not add more network calls to the unit test suite
+- CI runs `pytest tests/betting/` on every push (see `.github/workflows/tests.yml`)
+
+```bash
+# Run unit tests only (CI equivalent)
+pytest tests/betting/ -v
+
+# Run with coverage
+pytest tests/ --cov=genqirue --cov-report=html
+```
+
+---
+
+## 7. Database Changes
+
+When modifying the database schema:
+
+1. Add `CREATE TABLE IF NOT EXISTS` or `ALTER TABLE` statements to `genqirue/data/schema_extensions.sql`
+2. Use `IF NOT EXISTS` throughout — the schema is applied idempotently via `python fetch_odds.py --init-schema`
+3. For column additions to existing tables, add them to the `_migrate_db()` function in `pipeline/db.py`
+4. Test on a copy of your database before committing: `cp data/cycling.db data/cycling_backup.db`
+
+---
+
+## 8. Pull Request Checklist
+
+Before submitting:
+
+- [ ] Tests pass: `pytest tests/ -v`
+- [ ] Code follows style guide
+- [ ] Docstrings on all new public functions
+- [ ] Type hints on all new function signatures
+- [ ] SQL schema updated if new tables needed
+- [ ] `docs/ENGINE.md` status table updated if implementing a strategy
+- [ ] No personal names, local paths, or credentials committed
+- [ ] `data/cycling.db` not staged (it is in `.gitignore`)
+- [ ] Large binary files not staged
+
+---
+
+## 9. GitHub Administration
+
+### Adding a collaborator
+
+Repository → Settings → Collaborators → Add people → enter username or email.
+
+The invited collaborator clones the repo and runs:
+
+```bash
+git clone https://github.com/your-org/cycling-predict.git
+cd cycling-predict
+python scripts/setup_team.py
+```
+
+### Sharing data
+
+The database (`data/cycling.db`) is not in git — it is too large and is regenerated by the scraper. To share data:
+
+**Option 1 — Export a specific race:**
+```bash
+python scripts/export_race_data.py --race tour-de-france --year 2024
+# Creates tour-de-france_2024.zip — share via cloud storage
+# Teammate imports:
+python scripts/export_race_data.py --import-zip tour-de-france_2024.zip
+```
+
+**Option 2 — Shared cloud database:** See `docs/DEPLOYMENT.md` for PostgreSQL setup on Railway, Supabase, or AWS RDS.
+
+**Option 3 — Manual sync:** Upload `data/cycling.db` to shared cloud storage; download and replace locally.
+
+### Creating issues
+
+Track strategy implementation and data work in GitHub Issues:
+
+- `Implement Strategy 3: Medical PK model`
+- `Add Tour de France 2025 to config/races.yaml`
+- `Calibrate frailty model on 2024 data`
