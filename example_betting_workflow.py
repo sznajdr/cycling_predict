@@ -230,6 +230,28 @@ def get_upcoming_stage_startlist(
     return df.to_dict('records')
 
 
+DB_PATH = 'data/cycling.db'
+
+
+def _lookup_real_odds(rider_id: int, market_type: str, db_path=DB_PATH) -> float | None:
+    """Return latest back_odds from bookmaker_odds_latest, or None if unavailable."""
+    try:
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute("""
+                SELECT bo.back_odds FROM bookmaker_odds_latest bo
+                JOIN riders r ON (
+                    LOWER(bo.participant_name) = LOWER(r.name)
+                    OR LOWER(bo.participant_name_norm) = LOWER(
+                        REPLACE(REPLACE(REPLACE(r.name,'ä','a'),'ö','o'),'ü','u'))
+                )
+                WHERE r.id = ? AND bo.market_type = ?
+                ORDER BY bo.scraped_at DESC LIMIT 1
+            """, (rider_id, market_type)).fetchone()
+        return float(row[0]) if row else None
+    except Exception:
+        return None
+
+
 def analyze_stage(
     conn: sqlite3.Connection,
     race_slug: str = 'paris-nice',
@@ -331,9 +353,9 @@ def analyze_stage(
             base_prob = 0.0067  # ~1/150
             adjusted_prob = min(0.25, base_prob * (1 + avg_signal * 3))
             
-            # Assume market odds (would come from actual market data)
-            # Higher odds for riders with signals (market may undervalue them)
-            market_odds = 20.0 + np.random.exponential(10)
+            # Use real bookmaker odds when available, fall back to random simulation
+            market_odds = _lookup_real_odds(signal_data['rider_id'], 'winner') \
+                          or (20.0 + np.random.exponential(10))
             
             market = MarketState(
                 market_type='winner',

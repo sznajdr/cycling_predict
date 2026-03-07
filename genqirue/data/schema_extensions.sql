@@ -290,3 +290,44 @@ CREATE TABLE IF NOT EXISTS model_versions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_model_versions ON model_versions(strategy_name, is_active);
+
+-- ============================================================
+-- ODDS: Bookmaker odds snapshots (Betclic + future sources)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS bookmaker_odds (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    bookmaker               TEXT NOT NULL DEFAULT 'betclic',
+    event_url               TEXT NOT NULL,
+    event_id                TEXT NOT NULL,
+    market_type             TEXT NOT NULL,
+    market_label_raw        TEXT NOT NULL,
+    participant_name        TEXT NOT NULL,
+    participant_name_norm   TEXT,
+    participant_raw         TEXT NOT NULL,
+    back_odds               REAL NOT NULL,
+    implied_prob            REAL NOT NULL,
+    market_total_impl_prob  REAL,
+    fair_prob               REAL,
+    fair_odds               REAL,
+    scraped_at              TEXT NOT NULL,
+    scrape_run_id           TEXT NOT NULL,
+    race_id                 INTEGER REFERENCES races(id),
+    UNIQUE(bookmaker, event_id, market_type, participant_raw, scrape_run_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bookmaker_odds_event
+    ON bookmaker_odds(event_id, market_type, scraped_at);
+CREATE INDEX IF NOT EXISTS idx_bookmaker_odds_participant
+    ON bookmaker_odds(participant_name, market_type, scraped_at);
+
+CREATE VIEW IF NOT EXISTS bookmaker_odds_latest AS
+SELECT bo.* FROM bookmaker_odds bo
+INNER JOIN (
+    SELECT event_id, market_type, participant_raw, MAX(scraped_at) AS max_scraped
+    FROM bookmaker_odds
+    GROUP BY event_id, market_type, participant_raw
+) latest ON bo.event_id = latest.event_id
+         AND bo.market_type = latest.market_type
+         AND bo.participant_raw = latest.participant_raw
+         AND bo.scraped_at = latest.max_scraped;

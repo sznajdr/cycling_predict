@@ -13,9 +13,10 @@ A Bayesian betting engine for professional cycling. Scrapes ProCyclingStats, fit
 5. [Project Structure](#5-project-structure)
 6. [Setup](#6-setup)
 7. [Running It](#7-running-it)
-8. [Interpreting Results](#8-interpreting-results)
-9. [Quick Command Reference](#9-quick-command-reference)
-10. [Troubleshooting](#10-troubleshooting)
+8. [Live Odds (Betclic)](#8-live-odds-betclic)
+9. [Interpreting Results](#9-interpreting-results)
+10. [Quick Command Reference](#10-quick-command-reference)
+11. [Troubleshooting](#11-troubleshooting)
 
 ---
 
@@ -367,10 +368,11 @@ Beating the baseline is the minimum bar. If frailty or tactical cannot beat rand
 cycling_predict/
 |
 |-- pipeline/                   # Data collection
-|   |-- runner.py               # Entry point: run this to scrape
+|   |-- runner.py               # Entry point: run this to scrape PCS
 |   |-- fetcher.py              # HTTP requests, rate limiting
 |   |-- pcs_parser.py           # HTML parsing for ProCyclingStats
 |   |-- db.py                   # Schema definitions, all DB writes
+|   |-- betclic_scraper.py      # Betclic odds scraper (hub + event pages)
 |   `-- queue.py                # Persistent job queue (resume-safe)
 |
 |-- genqirue/                   # Betting engine
@@ -397,6 +399,7 @@ cycling_predict/
 |
 |-- tests/                      # Automated tests
 |-- data/cycling.db             # Created by scraper, not in git
+|-- fetch_odds.py               # CLI for Betclic odds scraping
 |-- run_backtest.py             # Backtest CLI
 |-- example_betting_workflow.py # End-to-end worked example
 `-- monitor.py                  # Watch scraping progress
@@ -469,7 +472,7 @@ python monitor.py
 ### Apply betting schema (first time only)
 
 ```
-python -c "import sqlite3; conn = sqlite3.connect('data/cycling.db'); conn.executescript(open('genqirue/data/schema_extensions.sql').read()); conn.commit(); conn.close()"
+python fetch_odds.py --init-schema
 ```
 
 ### Run the example workflow
@@ -499,7 +502,56 @@ Options:
 
 ---
 
-## 8. Interpreting Results
+## 8. Live Odds (Betclic)
+
+The models produce probabilities. To compute edge and Kelly fractions you need market odds. `fetch_odds.py` scrapes Betclic's cycling hub and stores every selection into `bookmaker_odds`. The example workflow and Kelly optimizer use those prices directly; if no match is found for a rider they fall back to simulated odds.
+
+### First-time setup
+
+Apply the odds schema (safe to run after `--init-schema` from setup — idempotent):
+
+```
+python fetch_odds.py --init-schema
+```
+
+### Test against a known event before writing anything
+
+```
+python fetch_odds.py --dry-run --event-url https://www.betclic.fr/cyclisme-scycling/paris-nice-c5649/paris-nice-2026-m1052180106760192
+```
+
+Prints rider names, raw odds, hold-adjusted fair odds, and the implied overround — no DB writes.
+
+### Scrape all live events
+
+```
+python fetch_odds.py
+```
+
+Discovers every cycling event on the hub, extracts odds, and inserts rows into `bookmaker_odds`. Each run gets a UUID `scrape_run_id`; the `bookmaker_odds_latest` view always reflects the most recent snapshot per selection.
+
+### Query what's stored
+
+```
+python -c "
+import sqlite3; conn = sqlite3.connect('data/cycling.db')
+print(conn.execute('SELECT market_type, COUNT(*) FROM bookmaker_odds GROUP BY market_type').fetchall())
+"
+```
+
+### Run on a schedule
+
+Odds move. Run every 30 minutes while markets are open. On Linux/macOS:
+
+```
+*/30 6-22 * * * cd /path/to/cycling_predict && python fetch_odds.py >> logs/odds.log 2>&1
+```
+
+See [ODDS_README.md](ODDS_README.md) for the full walkthrough: market type mappings, H2H row splitting, name matching logic, troubleshooting, and how to extend the classifier for unrecognised French labels.
+
+---
+
+## 9. Interpreting Results
 
 ```
 Strategy      Bets  Races   Top3%   Win%      ROI  Bankroll   MaxDD  Spearman
@@ -526,7 +578,7 @@ The gap over the 2% naive baseline is 3.6 percentage points, or 1.3 standard err
 
 ---
 
-## 9. Quick Command Reference
+## 10. Quick Command Reference
 
 ```
 # Install
@@ -536,16 +588,32 @@ pip install -r requirements.txt
 # Verify
 python quickstart.py
 
-# Scrape
+# Scrape PCS data
 python -m pipeline.runner
 
 # Monitor scraping
 python monitor.py
 
-# Apply betting schema (once)
-python -c "import sqlite3; conn = sqlite3.connect('data/cycling.db'); conn.executescript(open('genqirue/data/schema_extensions.sql').read()); conn.commit(); conn.close()"
+# Apply all schemas (betting + odds tables)
+python fetch_odds.py --init-schema
 
-# Full example workflow
+# --- Odds scraping ---
+
+# Dry-run a single known event (no DB writes)
+python fetch_odds.py --dry-run --event-url <betclic-event-url>
+
+# Dry-run full hub (shows all live selections, no DB writes)
+python fetch_odds.py --dry-run
+
+# Full hub scrape → writes to bookmaker_odds
+python fetch_odds.py
+
+# Check what's stored
+python -c "import sqlite3; conn = sqlite3.connect('data/cycling.db'); print(conn.execute('SELECT market_type, COUNT(*) FROM bookmaker_odds GROUP BY market_type').fetchall())"
+
+# --- Betting workflow ---
+
+# Full example workflow (uses real odds when available, simulated otherwise)
 python example_betting_workflow.py
 
 # Backtest
@@ -561,7 +629,7 @@ pytest tests/ -v
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 **"ModuleNotFoundError: No module named 'procyclingstats'"**
 ```
@@ -572,7 +640,7 @@ pip install -e ../procyclingstats
 PCS is rate-limiting. Wait 5–10 minutes and restart. The queue resumes safely.
 
 **"sqlite3.OperationalError: no such table"**
-No data scraped yet. Run `python -m pipeline.runner` first.
+If the missing table is `bookmaker_odds` or `bookmaker_odds_latest`, run `python fetch_odds.py --init-schema`. For other tables, no PCS data has been scraped yet — run `python -m pipeline.runner` first.
 
 **Jobs stuck "in_progress"**
 The scraper crashed mid-job. Reset:

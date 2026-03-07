@@ -135,6 +135,15 @@ def init_db(conn):
     _migrate_db(conn)
 
 
+def init_betting_schema(conn: sqlite3.Connection, sql_path=None) -> None:
+    """Apply schema_extensions.sql (idempotent — IF NOT EXISTS throughout)."""
+    if sql_path is None:
+        sql_path = Path(__file__).parent.parent / "genqirue" / "data" / "schema_extensions.sql"
+    with open(sql_path, "r", encoding="utf-8") as f:
+        conn.executescript(f.read())
+    conn.commit()
+
+
 def _migrate_db(conn):
     """Add columns introduced after the initial schema. Safe to run repeatedly."""
     new_cols = [
