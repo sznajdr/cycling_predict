@@ -112,11 +112,12 @@ def show_model_predictions(race_id, stage_id):
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT so.rider_name, so.model_prob, so.edge_bps, so.kelly_pct
+        SELECT r.name, so.win_prob, so.edge_bps
         FROM strategy_outputs so
+        JOIN riders r ON so.rider_id = r.id
         WHERE so.strategy_name = 'stage_ranking'
           AND so.stage_id = ?
-        ORDER BY so.model_prob DESC
+        ORDER BY so.win_prob DESC
         LIMIT 20
     """, (stage_id,))
     
@@ -131,14 +132,13 @@ def show_model_predictions(race_id, stage_id):
     print("\n" + "="*90)
     print("MODEL PREDICTIONS & VALUE BETS")
     print("="*90)
-    print(f"{'Rider':<30} {'Prob':<8} {'Edge':<10} {'Kelly':<10} {'Signal':<10}")
+    print(f"{'Rider':<30} {'Prob':<8} {'Edge':<10} {'Signal':<10}")
     print("-"*90)
     
     for pred in predictions:
         name = pred[0][:28].encode('ascii', 'ignore').decode() if pred[0] else ""
         prob = pred[1] or 0
         edge = pred[2] or 0
-        kelly = pred[3] or 0
         
         signal = ""
         if edge > 100:
@@ -148,7 +148,7 @@ def show_model_predictions(race_id, stage_id):
         elif edge > 0:
             signal = "WEAK BUY"
         
-        print(f"{name:<30} {prob*100:>6.1f}% {edge:>+7.0f}bps {kelly*100:>6.2f}%   {signal}")
+        print(f"{name:<30} {prob*100:>6.1f}% {edge:>+7.0f}bps {signal}")
     
     return True
 

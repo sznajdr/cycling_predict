@@ -184,12 +184,13 @@ def get_model_predictions(race_id, stage_id):
     """Get saved model predictions."""
     conn = get_db_connection()
     query = """
-    SELECT so.rider_name, so.model_prob, so.win_prob_std, so.edge_bps, 
-           so.expected_value, so.kelly_pct
+    SELECT r.name as rider_name, so.win_prob as model_prob, so.win_prob_std, so.edge_bps, 
+           so.expected_value
     FROM strategy_outputs so
+    JOIN riders r ON so.rider_id = r.id
     WHERE so.strategy_name = 'stage_ranking'
       AND so.stage_id = ?
-    ORDER BY so.model_prob DESC
+    ORDER BY so.win_prob DESC
     LIMIT 20
     """
     df = pd.read_sql_query(query, conn, params=(stage_id,))
@@ -361,8 +362,7 @@ def main():
                         st.markdown(f"""
                         <div class="value-bet">
                             <strong>{row['rider_name']}</strong><br>
-                            Model: {row['model_prob']:.1%} | Edge: +{row['edge_bps']:.0f} bps | 
-                            Kelly: {row['kelly_pct']:.2%}
+                            Model: {row['model_prob']:.1%} | Edge: +{row['edge_bps']:.0f} bps
                         </div>
                         """, unsafe_allow_html=True)
             else:
@@ -375,7 +375,6 @@ def main():
             display_df = predictions_df.copy()
             display_df['model_prob'] = display_df['model_prob'].apply(lambda x: f"{x:.1%}")
             display_df['edge_bps'] = display_df['edge_bps'].apply(lambda x: f"{x:+.0f}")
-            display_df['kelly_pct'] = display_df['kelly_pct'].apply(lambda x: f"{x:.2%}")
             
             st.dataframe(display_df, use_container_width=True, height=500)
     

@@ -105,23 +105,23 @@ def show_model_predictions(pcs_slug, year, stage_num):
     
     # Get predictions
     predictions = cursor.execute('''
-        SELECT rider_name, model_prob, edge_bps, kelly_pct
-        FROM strategy_outputs
-        WHERE strategy_name = 'stage_ranking' AND stage_id = ?
-        ORDER BY model_prob DESC
+        SELECT r.name, so.win_prob, so.edge_bps
+        FROM strategy_outputs so
+        JOIN riders r ON so.rider_id = r.id
+        WHERE so.strategy_name = 'stage_ranking' AND so.stage_id = ?
+        ORDER BY so.win_prob DESC
         LIMIT 10
     ''', (stage[0],)).fetchall()
     
     if predictions:
         print(f"\nTop 10 Model Predictions:")
-        print(f"{'Rider':<30} {'Prob':<8} {'Edge':<10} {'Kelly':<10}")
+        print(f"{'Rider':<30} {'Prob':<8} {'Edge':<10}")
         print("-"*70)
         for p in predictions:
             name = p[0][:28] if p[0] else ""
             prob = p[1] or 0
             edge = p[2] or 0
-            kelly = p[3] or 0
-            print(f"{name:<30} {prob*100:>6.1f}% {edge:>+7.0f}bps {kelly*100:>6.2f}%")
+            print(f"{name:<30} {prob*100:>6.1f}% {edge:>+7.0f}bps")
     else:
         print("\nNo predictions found. Run:")
         print(f"  python rank_stage.py {pcs_slug} {year} {stage_num} --run-models")
