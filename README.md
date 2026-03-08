@@ -50,10 +50,6 @@ Fifteen strategies across five categories. Four are implemented; the rest are ma
 
 Overnight batch. Train on historical data, produce ranked rider lists before markets open.
 
-
-<img width="618" height="878" alt="image" src="https://github.com/user-attachments/assets/79a6352e-c320-4c46-af5e-1a77b95efd34" />
-
-
 ---
 
 #### Strategy 1: Tactical HMM — IMPLEMENTED
@@ -409,6 +405,9 @@ Automated setup for a new team member:
 python scripts/setup_team.py
 ```
 
+<img width="288" height="521" alt="image" src="https://github.com/user-attachments/assets/b5f43bfd-976f-41de-8086-9467092dd050" />
+
+
 ---
 
 ## 7. Running It
@@ -509,6 +508,11 @@ Schedule for live coverage:
 Name matching between Betclic selections and the `riders` table uses a two-pass join: exact Unicode match, then accent-stripped ASCII fallback. When no match is found, `example_betting_workflow.py` falls back to simulated fair-market odds.
 
 Full walkthrough — market type mappings, H2H row handling, troubleshooting, classifier extension: [`docs/ODDS.md`](docs/ODDS.md).
+
+---
+
+<img width="1181" height="293" alt="image" src="https://github.com/user-attachments/assets/1b2249e1-82cc-41f2-b60a-362d88acbe4f" />
+
 
 ---
 
