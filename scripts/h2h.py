@@ -48,7 +48,7 @@ def is_field(name):
 def get_probs(conn, race, year, stage):
     """Get model win probabilities for all riders."""
     cursor = conn.execute('''
-        SELECT r.name, r.pcs_url, so.win_prob
+        SELECT r.name, r.pcs_url, so.win_prob, so.computed_at
         FROM strategy_outputs so
         JOIN riders r ON so.rider_id = r.id
         JOIN race_stages rs ON so.stage_id = rs.id
@@ -58,19 +58,23 @@ def get_probs(conn, race, year, stage):
     ''', (race, year, stage))
     
     probs = {}
+    computed_at = None
     for row in cursor.fetchall():
         orig_name = row[0]
         pcs_url = row[1]
+        win_prob = row[2]
+        if computed_at is None and row[3]:
+            computed_at = row[3]
         norm_name = normalize(orig_name)
-        probs[norm_name] = (orig_name, row[2])
+        probs[norm_name] = (orig_name, win_prob)
         # Also by last name
         last = norm_name.split()[-1] if ' ' in norm_name else norm_name
-        probs[last] = (orig_name, row[2])
+        probs[last] = (orig_name, win_prob)
         # Also by PCS URL
         if pcs_url:
             url_key = normalize(pcs_url.replace('rider/', ''))
-            probs[url_key] = (orig_name, row[2])
-    return probs
+            probs[url_key] = (orig_name, win_prob)
+    return probs, computed_at
 
 
 def find_rider(rider, probs):
@@ -205,7 +209,7 @@ Examples:
     
     # Get probabilities
     try:
-        probs = get_probs(conn, args.race, args.year, args.stage)
+        probs, computed_at = get_probs(conn, args.race, args.year, args.stage)
     except Exception as e:
         print(f"Error: Could not load model data. Run: python scripts/rank_stage.py {args.race} {args.year} {args.stage} --save")
         sys.exit(1)
@@ -214,6 +218,18 @@ Examples:
         print(f"Error: No model data found for {args.race} {args.year} Stage {args.stage}")
         print(f"Run: python scripts/rank_stage.py {args.race} {args.year} {args.stage} --save")
         sys.exit(1)
+    
+    # Check data freshness
+    if computed_at:
+        from datetime import datetime
+        try:
+            computed_dt = datetime.fromisoformat(computed_at.replace('Z', '+00:00'))
+            age_hours = (datetime.now(computed_dt.tzinfo) - computed_dt).total_seconds() / 3600
+            if age_hours > 1:
+                print(f"\nWARNING: Data is {age_hours:.1f} hours old. Run with --save to refresh:")
+                print(f"  python scripts/rank_stage.py {args.race} {args.year} {args.stage} --save\n")
+        except:
+            pass
     
     # Collect matchups
     matchups = []
