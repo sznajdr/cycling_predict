@@ -195,6 +195,7 @@ The EKF estimates `(θ, μ, σ)` in real time from live timing splits. When `θ�
 
 <img width="1800" height="438" alt="image" src="https://github.com/user-attachments/assets/0501e1aa-90e5-44bc-b898-fa6c9d74c42d" />
 
+<img width="1336" height="201" alt="image" src="https://github.com/user-attachments/assets/8f3cae1d-f3ad-4cd8-b672-75a7179caae0" />
 
 
 ### Risk modelling (Strategies 14–15)
