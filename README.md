@@ -50,6 +50,10 @@ Fifteen strategies across five categories. Four are implemented; the rest are ma
 
 Overnight batch. Train on historical data, produce ranked rider lists before markets open.
 
+
+<img width="618" height="878" alt="image" src="https://github.com/user-attachments/assets/79a6352e-c320-4c46-af5e-1a77b95efd34" />
+
+
 ---
 
 #### Strategy 1: Tactical HMM — IMPLEMENTED
