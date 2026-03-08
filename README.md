@@ -195,6 +195,7 @@ The EKF estimates `(θ, μ, σ)` in real time from live timing splits. When `θ�
 
 <img width="1800" height="438" alt="image" src="https://github.com/user-attachments/assets/0501e1aa-90e5-44bc-b898-fa6c9d74c42d" />
 
+<img width="1336" height="201" alt="image" src="https://github.com/user-attachments/assets/8f3cae1d-f3ad-4cd8-b672-75a7179caae0" />
 
 
 ### Risk modelling (Strategies 14–15)
@@ -404,7 +405,11 @@ Automated setup for a new team member:
 python scripts/setup_team.py
 ```
 
+
 ---
+
+<img width="288" height="521" alt="image" src="https://github.com/user-attachments/assets/b5f43bfd-976f-41de-8086-9467092dd050" />
+
 
 ## 7. Running It
 
@@ -504,6 +509,11 @@ Schedule for live coverage:
 Name matching between Betclic selections and the `riders` table uses a two-pass join: exact Unicode match, then accent-stripped ASCII fallback. When no match is found, `example_betting_workflow.py` falls back to simulated fair-market odds.
 
 Full walkthrough — market type mappings, H2H row handling, troubleshooting, classifier extension: [`docs/ODDS.md`](docs/ODDS.md).
+
+---
+
+<img width="1181" height="293" alt="image" src="https://github.com/user-attachments/assets/1b2249e1-82cc-41f2-b60a-362d88acbe4f" />
+
 
 ---
 
