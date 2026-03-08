@@ -299,7 +299,7 @@ class StageRankingModel:
     ) -> Dict[int, Optional[float]]:
         # --- Blending: determine which columns to mix and at what weights ---
         if stage_type == 'flat' and is_uphill_finish:
-            blend = [('sp_sprint', 0.40), ('sp_climber', 0.60)]
+            blend = [('sp_sprint', 0.55), ('sp_climber', 0.45)]
         elif stage_type == 'hilly' and is_uphill_finish:
             blend = [('sp_hills', 0.50), ('sp_climber', 0.50)]
         else:
@@ -553,6 +553,11 @@ class StageRankingModel:
         race_id = stage_info['race_id']
         total = stage_info['total_race_dist'] or 0
         if total == 0:
+            return (False, None)
+
+        # Validate this stage has distance data; without it we can't map climbs correctly
+        stage_dist = stage_info['cum_dist_end'] - stage_info['cum_dist_start']
+        if stage_dist <= 0:
             return (False, None)
 
         # km_before_finish is measured from the race finish.
