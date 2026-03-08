@@ -85,3 +85,8 @@ data/*.html
 
 # Untracked utility scripts
 scripts/check_specialty.py
+
+# User matchup files (personal betting lists)
+matchups.txt
+matchups_*.txt
+h2h_*.txt
