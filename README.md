@@ -4,6 +4,12 @@ A Bayesian betting engine for professional cycling. Scrapes ProCyclingStats, fit
 
 ---
 
+
+
+
+<img width="744" height="305" alt="image" src="https://github.com/user-attachments/assets/a10571b3-db87-4043-9c7e-ab33111fb583" />
+
+
 ## Table of Contents
 
 1. [Pipeline Overview](#1-pipeline-overview)
