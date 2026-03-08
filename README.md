@@ -405,10 +405,11 @@ Automated setup for a new team member:
 python scripts/setup_team.py
 ```
 
-<img width="288" height="521" alt="image" src="https://github.com/user-attachments/assets/b5f43bfd-976f-41de-8086-9467092dd050" />
-
 
 ---
+
+<img width="288" height="521" alt="image" src="https://github.com/user-attachments/assets/b5f43bfd-976f-41de-8086-9467092dd050" />
+
 
 ## 7. Running It
 
