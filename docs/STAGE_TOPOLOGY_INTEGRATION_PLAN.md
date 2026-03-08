@@ -154,10 +154,11 @@ def get_specialty_blend(profile_score: int) -> List[Tuple[str, float]]:
 
 ## Implementation Roadmap
 
-### Phase 1: Data Fixes (Week 1)
-- [ ] Fix `km_before_finish` transformation in pipeline
-- [ ] Backfill Paris-Nice 2026 climb data with correct race-relative positions
-- [ ] Add validation to ensure `distance_km` exists before uphill detection
+### Phase 1: Data Fixes (Week 1) ✅ COMPLETED
+- [x] Fix `km_before_finish` transformation in pipeline
+- [x] Backfill Paris-Nice 2026 climb data with correct race-relative positions
+- [x] Backfill Tirreno-Adriatico 2026 stage distances and climb data
+- [x] Add validation to ensure `distance_km` exists before uphill detection
 
 ### Phase 2: Profile Score Integration (Week 2)
 - [ ] Add `profile_score` to StageContext

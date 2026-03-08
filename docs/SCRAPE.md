@@ -561,8 +561,35 @@ Written via `UPDATE race_stages SET ... WHERE pcs_stage_url = ?` using
 | top_m | `top` | altitude at summit in metres |
 | km_before_finish | `km_before_finnish` | **Stage-relative** km from stage finish; must be transformed to race-relative using stage distances |
 
+**Stage-relative vs Race-relative:**
+
+PCS provides `km_before_finnish` as **stage-relative** (distance from that stage's finish line). To correctly map climbs to stages, the pipeline transforms these to **race-relative** positions:
+
+```python
+# Calculate cumulative stage distances
+cum_distances = {}
+cum = 0
+for stage_num, dist in sorted(stages.items()):
+    cum += dist
+    cum_distances[stage_num] = cum  # km at stage end
+
+total_distance = cum
+
+# Transform each climb
+race_kbf = total_distance - cum_distances[stage_num] + stage_kbf
+```
+
+Example transformation for Paris-Nice 2026:
+| Climb | Stage | Stage kbf | Cum @ Stage End | Race kbf |
+|-------|-------|-----------|-----------------|----------|
+| Uchon | 4 | 0 km | 576.4 km | 653.5 km |
+| Auron | 7 | 0 km | 1100.7 km | 129.2 km |
+
+**Why this matters:** Without transformation, all climbs with `kbf=0` (Uchon, Auron) appear to end at the same position, causing false uphill finish detection on every stage.
+
 **What it writes:**
 - Upserts into `race_climbs`, one row per named climb
+- Stores **race-relative** `km_before_finish` (transformed from PCS stage-relative)
 
 **`pcs_slug` column stores:** race slug
 **`year` column stores:** race year

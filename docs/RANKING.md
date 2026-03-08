@@ -8,15 +8,17 @@ Pre-race probability ranking that synthesises six signals — specialty, histori
 
 1. [Why This Exists](#1-why-this-exists)
 2. [The Six Signals](#2-the-six-signals)
-3. [Weight Matrix](#3-weight-matrix)
-4. [Softmax Temperature Calibration](#4-softmax-temperature-calibration)
-5. [Odds Join and Edge Calculation](#5-odds-join-and-edge-calculation)
-6. [Kelly Sizing](#6-kelly-sizing)
-7. [CLI Usage](#7-cli-usage)
-8. [Fitting Models First (`--run-models`)](#8-fitting-models-first---run-models)
-9. [Database Persistence (`--save`)](#9-database-persistence---save)
-10. [Graceful Degradation](#10-graceful-degradation)
-11. [Troubleshooting](#11-troubleshooting)
+3. [Stage Topology Integration](#3-stage-topology-integration)
+4. [Weight Matrix](#4-weight-matrix)
+5. [Softmax Temperature Calibration](#5-softmax-temperature-calibration)
+6. [Odds Join and Edge Calculation](#6-odds-join-and-edge-calculation)
+7. [Kelly Sizing](#7-kelly-sizing)
+8. [CLI Usage](#8-cli-usage)
+9. [Head-to-Head Predictions](#9-head-to-head-predictions)
+10. [Fitting Models First (`--run-models`)](#10-fitting-models-first---run-models)
+11. [Database Persistence (`--save`)](#11-database-persistence---save)
+12. [Graceful Degradation](#12-graceful-degradation)
+13. [Troubleshooting](#13-troubleshooting)
 
 ---
 
@@ -60,10 +62,19 @@ Each signal is a float in [0, 1] or `None` if data is unavailable.
 
 | Stage type | Uphill finish | Blend |
 |-----------|--------------|-------|
-| `flat` | Yes | 40% `sp_sprint` + 60% `sp_climber` |
+| `flat` | Yes | 55% `sp_sprint` + 45% `sp_climber` |
 | `hilly` | Yes | 50% `sp_hills` + 50% `sp_climber` |
 | `mountain` | any | 100% `sp_climber` |
 | `itt` / `ttt` | any | 100% `sp_time_trial` |
+
+**Stage topology detection.** The model detects uphill finishes using stage distance data and climb positions:
+
+1. **Data sources:** `race_stages.distance_km` + `race_climbs.km_before_finish`
+2. **Transformation:** PCS provides stage-relative `km_before_finish` (0 = stage finish). The pipeline transforms this to race-relative using cumulative stage distances.
+3. **Detection logic:** If any climb in the stage has `km_before_finish ≤ 2.0` from the stage's finish line, the stage is flagged as "uphill finish".
+4. **Validation:** If stage `distance_km` is NULL, uphill detection is disabled (returns `False`) to prevent false positives from missing data.
+
+Example: Paris-Nice Stage 4 (Uchon) has `km_before_finish=0` for the Uchon climb → detected as "HILLY/UPHILL FINISH" → uses 50/50 hills/climber blend.
 
 **Power-to-weight adjustment (mountains / uphill-hilly).** For mountain stages and uphill-finish hilly stages, each rider's raw specialty score is multiplied by `MEDIAN_WEIGHT_KG / rider.weight_kg` (capped at [0.80, 1.30]). A 58 kg climber with `sp_climber = 75` scores ~12% higher than a 73 kg rouleur with the same specialty score. Riders with unknown weight are unadjusted.
 
@@ -156,7 +167,80 @@ This signal directly addresses the *first-timer problem*: a rider making their P
 
 ---
 
-## 3. Weight Matrix
+## 3. Stage Topology Integration
+
+The model integrates detailed stage topology data to improve specialty signal accuracy and detect uphill finishes.
+
+### Data Sources
+
+| Table | Key Fields | Purpose |
+|-------|-----------|---------|
+| `race_stages` | `stage_type`, `distance_km`, `vertical_m`, `profile_score` | Stage classification and cumulative distance calculation |
+| `race_climbs` | `climb_name`, `length_km`, `steepness_pct`, `km_before_finish` | Climb characteristics and position relative to finish |
+
+### km_before_finish Transformation
+
+**The Problem:** PCS provides `km_before_finish` as **stage-relative** (0 = stage finish), but the model needs **race-relative** positions to correctly map climbs to stages.
+
+**The Solution:** Transform using cumulative stage distances:
+
+```
+race_kbf = total_race_distance - cum_distance_at_stage_end + stage_kbf
+```
+
+Example: Paris-Nice 2026
+- Stage 4 ends at km 576.4 (cumulative)
+- Total race distance: 1229.9 km
+- Uchon climb: stage_kbf = 0 km
+- Transformed: 1229.9 - 576.4 + 0 = **653.5 km** (from race finish)
+
+### Uphill Finish Detection
+
+A stage is flagged as "uphill finish" when:
+
+1. Stage has valid `distance_km` in `race_stages`
+2. Any climb in `race_climbs` has `km_before_finish ≤ 2.0` km from stage finish
+3. The climb belongs to that stage (verified via race-relative transformation)
+
+**Detection Examples:**
+
+| Stage | Race | Climb | kbf (stage) | Detected | Output Label |
+|-------|------|-------|-------------|----------|--------------|
+| 4 | Paris-Nice 2026 | Uchon | 0 km | ✅ Yes | HILLY/UPHILL FINISH |
+| 7 | Paris-Nice 2026 | Auron | 0 km | ✅ Yes | MOUNTAIN/UPHILL FINISH |
+| 2 | Paris-Nice 2026 | None | - | ❌ No | FLAT |
+
+### Specialty Blending by Topology
+
+When uphill finish is detected, specialty columns are blended:
+
+| Stage Type | Standard | Uphill Finish Blend |
+|-----------|----------|---------------------|
+| `flat` | 100% `sp_sprint` | 55% `sp_sprint` + 45% `sp_climber` |
+| `hilly` | 100% `sp_hills` | 50% `sp_hills` + 50% `sp_climber` |
+| `mountain` | 100% `sp_climber` | 100% `sp_climber` (no change) |
+
+### Power-to-Weight Adjustment
+
+For mountain stages and uphill-finish hilly stages:
+
+```
+adjusted_score = raw_score × (MEDIAN_WEIGHT_KG / rider.weight_kg)
+```
+
+Capped at [0.80, 1.30]. A 58 kg climber gets ~12% boost vs a 73 kg rider with identical `sp_climber`.
+
+### Data Quality Handling
+
+| Scenario | Behavior |
+|----------|----------|
+| Missing `distance_km` | Uphill detection disabled (returns `False`) |
+| Missing `race_climbs` | No uphill finish detection, standard specialty weights |
+| Missing rider `weight_kg` | No P/W adjustment (multiplier = 1.0) |
+
+---
+
+## 4. Weight Matrix
 
 Each stage type has a fixed set of base weights that sum to 1.0:
 
@@ -170,7 +254,7 @@ Each stage type has a fixed set of base weights that sum to 1.0:
 
 Tactical weight is zero for ITT/TTT — tactical preserving on road stages is not predictive of TT performance. GC relevance is highest on mountains, where it carries real signal about who will race aggressively. Form gets a higher weight in TTT (0.20) because recent team coherence matters more than specialty scores.
 
-When signals are missing (see [Section 10](#10-graceful-degradation)), weights are renormalised across available signals before scoring.
+When signals are missing (see [Section 12](#12-graceful-degradation)), weights are renormalised across available signals before scoring.
 
 ---
 
@@ -301,7 +385,83 @@ The **Signals** line shows effective weights after renormalisation for the activ
 
 ---
 
-## 8. Fitting Models First (`--run-models`)
+## 9. Head-to-Head Predictions
+
+The `h2h.py` script computes head-to-head matchup probabilities from the stage ranking model. Useful for duel markets or comparing specific riders.
+
+### Usage
+
+```bash
+# Interactive mode
+python scripts/h2h.py <race-slug> <year> <stage>
+
+# File mode (batch matchups)
+python scripts/h2h.py <race-slug> <year> <stage> -f matchups.txt
+```
+
+### Interactive Mode
+
+```bash
+python scripts/h2h.py paris-nice 2026 2
+
+> Pogacar vs Vingegaard
+Pogacar vs Vingegaard: 62.3% / 37.7% | Fair odds: @1.60 / @2.65
+
+> Coquard vs The Field
+Coquard vs The Field: 17.0% / 83.0% | Fair odds: @5.88 / @1.20
+
+> quit
+```
+
+### File Mode
+
+Create `matchups.txt`:
+
+```
+# Comments start with #
+Bryan Coquard vs Pascal Ackermann
+Jonas Vingegaard vs The Field
+Wilco Kelderman vs Aleksandr Vlasov
+```
+
+Run:
+```bash
+python scripts/h2h.py paris-nice 2026 2 -f matchups.txt
+```
+
+Output:
+```
+======================================================================
+Paris Nice 2026 Stage 2 - H2H Predictions
+======================================================================
+Rider A                   vs Rider B                   | Prob A | Fair Odds
+----------------------------------------------------------------------
+Bryan Coquard             vs Pascal Ackermann          |  73.9% | @1.35 / @3.82
+Jonas Vingegaard          vs The Field                 |   1.8% | @56.52 / @1.02
+Wilco Kelderman           vs Aleksandr Vlasov          |  66.2% | @1.51 / @2.96
+======================================================================
+```
+
+### "The Field" / "Das Feld"
+
+Special opponent representing all other riders combined:
+
+```
+P(A beats Field) = P(A wins) / (P(A wins) + P(all others win))
+                 = P(A wins) / (1 - P(A wins))
+```
+
+Useful when a rider is priced against the entire peloton (common in breakaway vs peloton scenarios).
+
+### Name Matching
+
+Uses the same two-pass matching as the main ranking:
+1. Exact Unicode match
+2. NFKD normalization (strips accents: `č` → `c`, `ø` → `o`)
+
+---
+
+## 10. Fitting Models First (`--run-models`)
 
 Without model output in `rider_frailty` and `tactical_states`, the frailty and tactical signals are inactive and the ranking runs on specialty + historical + GC relevance only. `--run-models` runs the fitting pipeline automatically before ranking.
 
@@ -337,7 +497,7 @@ These are inserted to `tactical_states` with `INSERT OR REPLACE`, so re-running 
 
 ---
 
-## 9. Database Persistence (`--save`)
+## 11. Database Persistence (`--save`)
 
 `--save` writes one row per rider to `strategy_outputs`:
 
@@ -371,7 +531,7 @@ ORDER BY so.win_prob DESC;
 
 ---
 
-## 10. Graceful Degradation
+## 12. Graceful Degradation
 
 The model never fails on missing data — it degrades gracefully:
 
@@ -397,7 +557,7 @@ The displayed weights are the base weights renormalised over active signals only
 
 ---
 
-## 11. Troubleshooting
+## 13. Troubleshooting
 
 **`Error: Stage not found`**
 

@@ -128,7 +128,9 @@ ProCyclingStats ──▶ SQLite DB ──▶ Models ──▶ Betclic Odds ─�
 - `rider_results.time_behind_winner_seconds` — raw time gap (input to Strategy 1)
 - `rider_results.result_category` — `'stage'` or `'gc'`
 - `race_stages.stage_type` — `'flat'`, `'hilly'`, `'mountain'`, `'itt'`, `'ttt'`
+- `race_stages.distance_km`, `vertical_m`, `profile_score` — stage topology data
 - `riders.sp_climber`, `sp_sprint`, `sp_gc` — specialty scores 0–100
+- `race_climbs.km_before_finish` — climb position (race-relative, transformed from PCS stage-relative)
 - `bookmaker_odds.back_odds`, `fair_odds` — raw and hold-adjusted prices
 - `bookmaker_odds.market_type` — `'winner'`, `'top_3'`, `'h2h'`, etc.
 

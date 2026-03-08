@@ -238,10 +238,30 @@ Full documentation: [`docs/RANKING.md`](docs/RANKING.md).
 
 Quick H2H probability calculator for betting matchups. Supports individual riders vs individual riders, or riders vs "The Field" (Das Feld).
 
+### How It Works
+
+The H2H script uses the stage ranking model probabilities to compute conditional win probabilities:
+
+```
+P(A beats B) = P(A wins) / (P(A wins) + P(B wins))
+```
+
+For "The Field" matchups:
+```
+P(A beats Field) = P(A wins) / (1 - P(A wins))
+```
+
+The script loads pre-computed probabilities from `strategy_outputs` (or runs the ranking model if none exist) and calculates fair odds for each matchup.
+
 ### Single Matchup
 
 ```bash
 python scripts/h2h.py paris-nice 2026 2 -m "Zingle vs Godon"
+```
+
+Output:
+```
+Zingle vs Godon: 58.3% / 41.7% | Fair odds: @1.71 / @2.40
 ```
 
 ### Multiple Matchups
@@ -261,13 +281,25 @@ Bet on whether a specific rider wins, or anyone else (the field):
 python scripts/h2h.py paris-nice 2026 2 -m "Lamperti vs Das Feld"
 ```
 
+Output:
+```
+Lamperti vs Das Feld: 8.5% / 91.5% | Fair odds: @11.76 / @1.09
+```
+
+Useful for breakaway vs peloton scenarios where the market prices a rider against the entire field.
+
 ### From File
 
 Create a file `matchups.txt`:
 ```
-Zingle vs Godon
-Girmay vs Fretin
-Ayuso vs Vingegaard
+# H2H Matchups Template
+# Lines starting with # are comments
+# Format: Rider A vs Rider B
+# Supports "Das Feld" or "The Field" for field bets
+
+Bryan Coquard vs Pascal Ackermann
+Jonas Vingegaard vs The Field
+Wilco Kelderman vs Aleksandr Vlasov
 ```
 
 Run:
@@ -275,14 +307,33 @@ Run:
 python scripts/h2h.py paris-nice 2026 2 -f matchups.txt
 ```
 
+Output:
+```
+======================================================================
+Paris Nice 2026 Stage 2 - H2H Predictions
+======================================================================
+Rider A                   vs Rider B                   | Prob A | Fair Odds
+----------------------------------------------------------------------
+Bryan Coquard             vs Pascal Ackermann          |  73.9% | @1.35 / @3.82
+Jonas Vingegaard          vs The Field                 |   1.8% | @56.52 / @1.02
+Wilco Kelderman           vs Aleksandr Vlasov          |  66.2% | @1.51 / @2.96
+======================================================================
+```
+
 ### Interactive Mode
 
 ```bash
 python scripts/h2h.py paris-nice 2026 2
 > Zingle vs Godon
+Zingle vs Godon: 58.3% / 41.7% | Fair odds: @1.71 / @2.40
+
 > Girmay vs Das Feld
+Girmay vs Das Feld: 12.4% / 87.6% | Fair odds: @8.06 / @1.14
+
 > done
 ```
+
+Type `quit`, `exit`, or `done` to exit interactive mode.
 
 ### Different Races
 
