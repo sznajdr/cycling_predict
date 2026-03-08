@@ -10,12 +10,13 @@ Complete reference for every CLI entry point, database operation, and maintenanc
 2. [PCS Data Scraping](#2-pcs-data-scraping)
 3. [Betclic Odds Scraping](#3-betclic-odds-scraping)
 4. [Betting Workflow](#4-betting-workflow)
-5. [Backtesting](#5-backtesting)
-6. [Database Administration](#6-database-administration)
-7. [Testing](#7-testing)
-8. [Monitoring](#8-monitoring)
-9. [Scheduled Automation](#9-scheduled-automation)
-10. [Git Workflow](#10-git-workflow)
+5. [Stage Ranking](#5-stage-ranking)
+6. [Backtesting](#6-backtesting)
+7. [Database Administration](#7-database-administration)
+8. [Testing](#8-testing)
+9. [Monitoring](#9-monitoring)
+10. [Scheduled Automation](#10-scheduled-automation)
+11. [Git Workflow](#11-git-workflow)
 
 ---
 
@@ -223,7 +224,87 @@ python fetch_odds.py && python example_betting_workflow.py
 
 ---
 
-## 5. Backtesting
+## 5. Stage Ranking
+
+Pre-race ranking that combines up to five signals into softmax probabilities over the full startlist, joins live Betclic odds, and computes edge and Kelly stakes.
+
+Full documentation: [`docs/RANKING.md`](docs/RANKING.md).
+
+### Basic usage
+
+```bash
+# Rank all riders for Stage 1
+python rank_stage.py paris-nice 2026 1
+
+# Show only top 20
+python rank_stage.py paris-nice 2026 3 --top 20
+
+# Custom DB path
+python rank_stage.py paris-nice 2026 1 --db path/to/custom.db
+```
+
+### Fit frailty + tactical models before ranking
+
+```bash
+python rank_stage.py paris-nice 2026 1 --run-models
+```
+
+Loads all historical years from the DB, fits `FastFrailtyEstimator` and `SimpleTacticalDetector`, writes results to `rider_frailty` and `tactical_states`, then ranks. Use this once per race before the first stage to populate the model tables.
+
+### Persist ranking to the database
+
+```bash
+python rank_stage.py paris-nice 2026 1 --save
+```
+
+Inserts one row per rider into `strategy_outputs`. Query with:
+
+```sql
+SELECT rider_name, model_prob, back_odds, edge_bps, kelly_pct
+FROM strategy_outputs
+WHERE strategy_name = 'stage_ranking'
+  AND stage_id = (
+      SELECT rs.id FROM race_stages rs
+      JOIN races r ON rs.race_id = r.id
+      WHERE r.pcs_slug = 'paris-nice' AND r.year = 2026
+        AND rs.stage_number = 1
+  )
+ORDER BY CAST(rank_position AS INTEGER);
+```
+
+### Combined: models + rank + save
+
+```bash
+python rank_stage.py paris-nice 2026 1 --run-models --save
+```
+
+### Inspect model table state
+
+```sql
+-- Frailty estimates per rider
+SELECT rider_id, frailty_estimate, hidden_form_prob, computed_at
+FROM rider_frailty
+ORDER BY hidden_form_prob DESC
+LIMIT 20;
+
+-- Tactical states from the most recent model run
+SELECT rider_id, stage_id, decoded_state, contesting_prob, preserving_prob, computed_at
+FROM tactical_states
+ORDER BY computed_at DESC
+LIMIT 20;
+
+-- Saved rankings for a stage
+SELECT rank_position, rider_name, model_prob, back_odds, edge_bps, kelly_pct,
+       json_extract(latent_states_json, '$.specialty') AS specialty,
+       json_extract(latent_states_json, '$.historical') AS historical
+FROM strategy_outputs
+WHERE strategy_name = 'stage_ranking'
+ORDER BY CAST(rank_position AS INTEGER);
+```
+
+---
+
+## 6. Backtesting
 
 ### Run full walk-forward backtest (all strategies)
 
@@ -266,7 +347,7 @@ frailty         72      4    5.6%   1.4%   136.8%   1686.74   15.0%     0.077
 
 ---
 
-## 6. Database Administration
+## 7. Database Administration
 
 ### Connect to the database
 
@@ -387,7 +468,7 @@ sqlite3 data/cycling.db < genqirue/data/schema_extensions.sql
 
 ---
 
-## 7. Testing
+## 8. Testing
 
 ### Run all tests
 
@@ -419,7 +500,7 @@ pytest tests/betting/ -v
 
 ---
 
-## 8. Monitoring
+## 9. Monitoring
 
 ### Scraping progress
 
@@ -451,7 +532,7 @@ Edit `pipeline/runner.py` and change the logging level from `INFO` to `DEBUG`. T
 
 ---
 
-## 9. Scheduled Automation
+## 10. Scheduled Automation
 
 ### PCS scraper — cron (Linux/macOS)
 
@@ -484,7 +565,7 @@ See `.github/workflows/scrape.yml` — triggered daily at 06:00 UTC and on manua
 
 ---
 
-## 10. Git Workflow
+## 11. Git Workflow
 
 ### Daily development
 

@@ -372,7 +372,14 @@ If the names are structurally different (abbreviated surname, middle name includ
 
 **`market_type = 'unknown'` for a market you want**
 
-The classifier uses substring matching on French labels. Add the phrase to `_MARKET_LABEL_MAP` in `pipeline/betclic_scraper.py`:
+The scraper uses two classification passes:
+
+1. **Label-based** — substring matching on French market labels (`vainqueur`, `podium`, etc.) via `_MARKET_LABEL_MAP`. Runs first.
+2. **URL-based** — regex on the Betclic event URL path (`etape-1-...` → `winner`, `paris-nice-2026-m...` → `gc_position`) via `classify_market_from_url()`. Runs as a fallback when the label match returns `'unknown'`.
+
+Betclic pages are JS-rendered, so the HTML label is often absent — URL classification catches most of these. Genuine unknowns left after both passes are truly novel markets.
+
+To extend the label classifier, add a phrase to `_MARKET_LABEL_MAP` in `pipeline/betclic_scraper.py`:
 
 ```python
 _MARKET_LABEL_MAP = [
@@ -382,10 +389,22 @@ _MARKET_LABEL_MAP = [
 ]
 ```
 
-Check what's unclassified:
+To extend the URL classifier, add a rule to `_URL_MARKET_RULES` in the same file:
+
+```python
+_URL_MARKET_RULES = [
+    ...
+    (re.compile(r'/your-pattern[-/]', re.IGNORECASE), 'market_type'),
+    ...
+]
+```
+
+Check what's still unclassified after both passes:
 
 ```sql
-SELECT DISTINCT market_label_raw FROM bookmaker_odds WHERE market_type = 'unknown';
+SELECT DISTINCT market_label_raw, event_url
+FROM bookmaker_odds
+WHERE market_type = 'unknown';
 ```
 
 ---

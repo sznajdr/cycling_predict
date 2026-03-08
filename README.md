@@ -270,7 +270,8 @@ cycling_predict/
 |   |   |-- gruppetto_frailty.py   # Strategy 2: Cox PH + frailty
 |   |   |-- tactical_hmm.py        # Strategy 1: HMM
 |   |   |-- weather_spde.py        # Strategy 6: GP/SPDE for ITTs
-|   |   `-- online_changepoint.py  # Strategy 12: BOCPD
+|   |   |-- online_changepoint.py  # Strategy 12: BOCPD
+|   |   `-- stage_ranker.py        # Pre-race ranking: 5 signals → softmax → Kelly
 |   |-- portfolio/
 |   |   `-- kelly.py            # Robust Kelly + CVaR optimiser
 |   |-- domain/
@@ -286,6 +287,7 @@ cycling_predict/
 |-- docs/
 |   |-- MODELS.md               # Mathematical specification — all 15 strategies
 |   |-- ENGINE.md               # Implementation guide — data flow, acceptance criteria
+|   |-- RANKING.md              # Stage ranking model — signals, weights, CLI usage
 |   |-- SCRAPE.md               # Scraping pipeline — schema, job types, execution flow
 |   |-- ODDS.md                 # Betclic scraper — walkthrough and troubleshooting
 |   `-- DEPLOYMENT.md           # Production: Docker, cron, PostgreSQL, monitoring
@@ -306,6 +308,7 @@ cycling_predict/
 |
 |-- data/cycling.db             # Created by scraper, not in git
 |-- fetch_odds.py               # Betclic odds CLI
+|-- rank_stage.py               # Pre-race stage ranking CLI
 |-- run_backtest.py             # Backtest CLI
 |-- example_betting_workflow.py # End-to-end worked example
 |-- quickstart.py               # Quick demo (no scraped data required)
@@ -373,7 +376,20 @@ python monitor.py          # watch progress in a second terminal
 
 Rate-limited to ~1 req/s. Safe to stop (Ctrl+C) and resume — the queue persists. Each race takes 20–60 minutes depending on history depth. Full schema and job-type reference: [`docs/SCRAPE.md`](docs/SCRAPE.md).
 
-### Fit models and generate signals
+### Rank a specific stage
+
+```bash
+python rank_stage.py paris-nice 2026 1
+python rank_stage.py paris-nice 2026 1 --run-models   # fit frailty + tactical first
+python rank_stage.py paris-nice 2026 3 --top 20       # top 20 only
+python rank_stage.py paris-nice 2026 1 --save         # persist ranking to DB
+```
+
+Combines up to five pre-race signals (specialty scores, historical stage results, frailty estimates, tactical HMM state, GC relevance) into softmax probabilities over the full startlist. Joins live Betclic odds, computes edge in basis points, and sizes stakes via half-Kelly. Signals with no data are excluded; weights renormalize automatically.
+
+Full documentation: [`docs/RANKING.md`](docs/RANKING.md).
+
+### Fit models and generate signals (multi-strategy workflow)
 
 ```bash
 python example_betting_workflow.py
@@ -460,6 +476,11 @@ python fetch_odds.py --dry-run --event-url <url>
 python fetch_odds.py --dry-run
 python fetch_odds.py
 python -c "import sqlite3; conn = sqlite3.connect('data/cycling.db'); print(conn.execute('SELECT market_type, COUNT(*) FROM bookmaker_odds GROUP BY market_type').fetchall())"
+
+# Stage ranking
+python rank_stage.py paris-nice 2026 1
+python rank_stage.py paris-nice 2026 1 --run-models --save
+python rank_stage.py paris-nice 2026 3 --top 20
 
 # Models and workflow
 python quickstart.py

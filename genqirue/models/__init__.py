@@ -36,6 +36,12 @@ from .weather_spde import (
     SimpleWeatherArbitrage,
 )
 
+from .stage_ranker import (
+    StageRankingModel,
+    RiderSignals,
+    StageRankingResult,
+)
+
 __all__ = [
     # Base classes
     "BayesianModel",
@@ -67,4 +73,9 @@ __all__ = [
     "WeatherObservation",
     "ITTStarter",
     "SimpleWeatherArbitrage",
+
+    # Stage Ranking Model
+    "StageRankingModel",
+    "RiderSignals",
+    "StageRankingResult",
 ]

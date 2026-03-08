@@ -340,6 +340,42 @@ V_s(v) = min_{v'} [λ_s(v') · DNF_cost + L_s/v' + V_{s+1}(v')]
 
 ---
 
+## Stage Ranking Model
+
+**File:** `genqirue/models/stage_ranker.py` | **CLI:** `rank_stage.py`
+
+**What it is.** Not a strategy — a synthesiser. Combines whichever of the five pre-race signals are available into a single probability distribution over the startlist, calibrates that distribution to a realistic favourite-probability range, and joins live Betclic odds to produce edge and Kelly stake estimates.
+
+**Five signals:**
+
+| Signal | Source table | Missing data |
+|--------|-------------|-------------|
+| Specialty | `riders.sp_sprint / sp_hills / sp_climber / sp_time_trial` | `None` if rider has no score |
+| Historical | `rider_results` (this race, this stage type, prior years) | `None` if no race history → median fallback used for the field |
+| Frailty | `rider_frailty.hidden_form_prob` at latest `computed_at` | `None` if table empty |
+| Tactical | `tactical_states.preserving_prob` for stage N-1 | `None` if stage 1 or table empty |
+| GC relevance | `rider_results.rank` with `result_category='gc'` for stage N-1 | `0.5` (neutral) — always set |
+
+**Scoring:**
+
+```
+raw_score_i = Σ_k  [w_k / Σ_{active k} w_k]  ×  signal_{i,k}
+```
+
+Weights are renormalised over whichever signals are non-`None` for each rider individually.
+
+**Probability:**
+
+```
+prob_i = softmax(T × raw_score)[i]
+```
+
+`T` is calibrated via binary search so the top probability lands in the target range for the stage type (e.g. 12–22% for a flat stage).
+
+Full documentation: [`docs/RANKING.md`](RANKING.md)
+
+---
+
 ## Portfolio: Robust Kelly
 
 **File:** `genqirue/portfolio/kelly.py`

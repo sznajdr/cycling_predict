@@ -218,6 +218,14 @@ def seed_queue(conn, config):
             if not is_fresh(conn, "race_startlist", entity_key):
                 add_job(conn, "race_startlist", pcs_slug, year=year, priority=2)
 
+        prediction_year = config.get("year")
+        if prediction_year and prediction_year not in years:
+            entity_key = f"{pcs_slug}/{prediction_year}"
+            if not is_fresh(conn, "race_meta", entity_key):
+                add_job(conn, "race_meta", pcs_slug, year=prediction_year, priority=1)
+            if not is_fresh(conn, "race_startlist", entity_key):
+                add_job(conn, "race_startlist", pcs_slug, year=prediction_year, priority=2)
+
 
 def is_empty(conn):
     """Return True if there are no pending jobs ready to run now."""

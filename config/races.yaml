@@ -51,10 +51,10 @@ races:
      type: stage_race
      history_years: [2022, 2023, 2024, 2025]
 
-  # - name: Tirreno-Adriatico
-  #   pcs_slug: tirreno-adriatico
-  #   type: stage_race
-  #   history_years: [2022, 2023, 2024, 2025]
+   - name: Tirreno-Adriatico
+     pcs_slug: tirreno-adriatico
+     type: stage_race
+     history_years: [2022, 2023, 2024, 2025, 2026]
 
   # - name: Critérium du Dauphiné
   #   pcs_slug: criterium-du-dauphine

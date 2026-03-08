@@ -62,6 +62,24 @@ _NAME_PREFIX_RE = re.compile(
     re.IGNORECASE
 )
 
+# URL-path patterns used when HTML label parsing fails (JS-rendered pages)
+_URL_MARKET_RULES = [
+    (re.compile(r'/(etape-\d+|stage-\d+)[-/]', re.IGNORECASE), 'winner'),
+    (re.compile(r'/(podium|top-?3)[-/]',         re.IGNORECASE), 'top_3'),
+    (re.compile(r'/top-?10[-/]',                 re.IGNORECASE), 'top_10'),
+    (re.compile(r'/(duel|h2h|confrontation)[-/]', re.IGNORECASE), 'h2h'),
+    (re.compile(r'/[a-z\-]+-20\d{2}-m\d+$',     re.IGNORECASE), 'gc_position'),
+]
+
+
+def classify_market_from_url(event_url: str) -> str:
+    """Classify market type from the Betclic event URL path."""
+    path = event_url.split('betclic.fr')[-1]
+    for pattern, market_type in _URL_MARKET_RULES:
+        if pattern.search(path):
+            return market_type
+    return 'unknown'
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -235,7 +253,7 @@ def process_event(event_url: str, scrape_run_id: str, scraped_at: str) -> list[d
 
         output_rows = []
         for label, selections in by_label.items():
-            market_type = classify_market(label)
+            market_type = classify_market(label) if label != 'unknown' else classify_market_from_url(event_url)
             enriched = compute_fair_odds(selections)
 
             for sel in enriched:

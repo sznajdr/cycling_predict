@@ -122,6 +122,7 @@ ProCyclingStats ──▶ SQLite DB ──▶ Models ──▶ Betclic Odds ─�
 | Real-time telemetry | `telemetry_changepoints` | Live power data for BOCPD (Strategy 12) |
 | Weather | `weather_fields`, `itt_time_predictions` | Wind field snapshots, expected ITT time deltas |
 | Market data | `bookmaker_odds`, `bookmaker_odds_latest` | Betclic odds snapshots; view returns most recent per selection |
+| Model outputs | `rider_frailty`, `tactical_states`, `strategy_outputs` | Fitted model signals, ranked stage output with edge and Kelly |
 
 **Key columns:**
 - `rider_results.time_behind_winner_seconds` — raw time gap (input to Strategy 1)
@@ -156,7 +157,20 @@ python monitor.py          # watch progress in a second terminal
 
 One race with 4 years of history: 20–60 minutes. A grand tour with 5 years: 4–6 hours. Full schema and job-type reference: [`docs/SCRAPE.md`](docs/SCRAPE.md).
 
-**Fit models and generate signals:**
+**Rank a specific stage:**
+
+```bash
+python rank_stage.py paris-nice 2026 1
+python rank_stage.py paris-nice 2026 1 --run-models   # fit frailty + tactical first
+python rank_stage.py paris-nice 2026 3 --top 20       # top 20 only
+python rank_stage.py paris-nice 2026 1 --save         # persist to strategy_outputs
+```
+
+`rank_stage.py` combines up to five pre-race signals (specialty, historical, frailty, tactical, GC relevance) into a probability distribution over the startlist. It then joins live Betclic odds from `bookmaker_odds_latest`, computes edge in basis points, and sizes stakes via half-Kelly. Signals for which no data is available are omitted; the remaining weights are renormalized automatically.
+
+Full signal documentation and output format: [`docs/RANKING.md`](docs/RANKING.md).
+
+**Fit models and generate signals (multi-strategy workflow):**
 
 ```bash
 python example_betting_workflow.py
@@ -307,6 +321,7 @@ Log every override: reason, timestamp, expected vs. actual outcome. Review month
 |------|---------|
 | `docs/ENGINE.md` | Implementation logic, data inputs/outputs, acceptance criteria for all 15 strategies |
 | `docs/MODELS.md` | Mathematical specifications — equations, priors, dependency chain |
+| `docs/RANKING.md` | Stage ranking model — five signals, weight matrix, softmax calibration, CLI usage |
 | `COMMANDS.md` | Complete CLI, SQL, scheduling, monitoring reference |
 | `docs/ODDS.md` | Betclic scraper walkthrough — market types, H2H handling, name matching |
 | `docs/SCRAPE.md` | Scraping pipeline — schema, job types, execution flow |
