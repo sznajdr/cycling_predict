@@ -226,7 +226,7 @@ python fetch_odds.py && python example_betting_workflow.py
 
 ## 5. Stage Ranking
 
-Pre-race ranking that combines up to five signals into softmax probabilities over the full startlist, joins live Betclic odds, and computes edge and Kelly stakes.
+Pre-race ranking that combines up to six signals (specialty with finish-type blending + power-to-weight, cross-race recent form, historical, frailty, tactical, GC relevance) into softmax probabilities over the full startlist, joins live Betclic odds, and computes edge and Kelly stakes.
 
 Full documentation: [`docs/RANKING.md`](docs/RANKING.md).
 
@@ -296,7 +296,9 @@ LIMIT 20;
 -- Saved rankings for a stage
 SELECT rank_position, rider_name, model_prob, back_odds, edge_bps, kelly_pct,
        json_extract(latent_states_json, '$.specialty') AS specialty,
-       json_extract(latent_states_json, '$.historical') AS historical
+       json_extract(latent_states_json, '$.historical') AS historical,
+       json_extract(latent_states_json, '$.form') AS form,
+       json_extract(latent_states_json, '$.is_uphill_finish') AS uphill_finish
 FROM strategy_outputs
 WHERE strategy_name = 'stage_ranking'
 ORDER BY CAST(rank_position AS INTEGER);

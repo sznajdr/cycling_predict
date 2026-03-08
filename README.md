@@ -271,7 +271,7 @@ cycling_predict/
 |   |   |-- tactical_hmm.py        # Strategy 1: HMM
 |   |   |-- weather_spde.py        # Strategy 6: GP/SPDE for ITTs
 |   |   |-- online_changepoint.py  # Strategy 12: BOCPD
-|   |   `-- stage_ranker.py        # Pre-race ranking: 5 signals → softmax → Kelly
+|   |   `-- stage_ranker.py        # Pre-race ranking: 6 signals → softmax → Kelly
 |   |-- portfolio/
 |   |   `-- kelly.py            # Robust Kelly + CVaR optimiser
 |   |-- domain/
@@ -385,7 +385,7 @@ python rank_stage.py paris-nice 2026 3 --top 20       # top 20 only
 python rank_stage.py paris-nice 2026 1 --save         # persist ranking to DB
 ```
 
-Combines up to five pre-race signals (specialty scores, historical stage results, frailty estimates, tactical HMM state, GC relevance) into softmax probabilities over the full startlist. Joins live Betclic odds, computes edge in basis points, and sizes stakes via half-Kelly. Signals with no data are excluded; weights renormalize automatically.
+Combines up to six pre-race signals (specialty scores with finish-type blending, cross-race recent form, historical stage results, frailty estimates, tactical HMM state, GC relevance) into softmax probabilities over the full startlist. Uphill finish detection adjusts specialty blending and applies power-to-weight for mountain stages. Joins live Betclic odds, computes edge in basis points, and sizes stakes via half-Kelly. Signals with no data are excluded; weights renormalize automatically.
 
 Full documentation: [`docs/RANKING.md`](docs/RANKING.md).
 

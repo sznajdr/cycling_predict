@@ -166,7 +166,7 @@ python rank_stage.py paris-nice 2026 3 --top 20       # top 20 only
 python rank_stage.py paris-nice 2026 1 --save         # persist to strategy_outputs
 ```
 
-`rank_stage.py` combines up to five pre-race signals (specialty, historical, frailty, tactical, GC relevance) into a probability distribution over the startlist. It then joins live Betclic odds from `bookmaker_odds_latest`, computes edge in basis points, and sizes stakes via half-Kelly. Signals for which no data is available are omitted; the remaining weights are renormalized automatically.
+`rank_stage.py` combines up to six pre-race signals (specialty with finish-type blending, cross-race recent form, historical, frailty, tactical, GC relevance) into a probability distribution over the startlist. Uphill finish detection (via `race_climbs` cumulative distance mapping) adjusts specialty column blending and applies a power-to-weight factor for mountain stages. It then joins live Betclic odds from `bookmaker_odds_latest`, computes edge in basis points, and sizes stakes via half-Kelly. Signals for which no data is available are omitted; the remaining weights are renormalized automatically.
 
 Full signal documentation and output format: [`docs/RANKING.md`](docs/RANKING.md).
 
@@ -321,7 +321,7 @@ Log every override: reason, timestamp, expected vs. actual outcome. Review month
 |------|---------|
 | `docs/ENGINE.md` | Implementation logic, data inputs/outputs, acceptance criteria for all 15 strategies |
 | `docs/MODELS.md` | Mathematical specifications — equations, priors, dependency chain |
-| `docs/RANKING.md` | Stage ranking model — five signals, weight matrix, softmax calibration, CLI usage |
+| `docs/RANKING.md` | Stage ranking model — six signals, finish-type blending, weight matrix, softmax calibration, CLI usage |
 | `COMMANDS.md` | Complete CLI, SQL, scheduling, monitoring reference |
 | `docs/ODDS.md` | Betclic scraper walkthrough — market types, H2H handling, name matching |
 | `docs/SCRAPE.md` | Scraping pipeline — schema, job types, execution flow |
