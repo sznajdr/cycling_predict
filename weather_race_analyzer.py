@@ -35,6 +35,7 @@ import time
 # Add parent dir for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pipeline.db import get_connection
+from weather_free_providers import FreeWeatherClient, parse_manual_forecast
 
 
 # =============================================================================
@@ -93,118 +94,56 @@ class WindImpact:
 # Weather API Integration
 # =============================================================================
 
-class OpenWeatherClient:
-    """Client for OpenWeatherMap API (5-day forecast)."""
+class WeatherClient:
+    """
+    Weather client using free providers (no API key needed).
     
-    BASE_URL = "https://api.openweathermap.org/data/2.5"
+    Uses Open-Meteo, MET Norway, or NOAA depending on location.
+    Falls back to mock data if all providers fail.
+    """
     
-    def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("OPENWEATHER_API_KEY")
-        self.use_mock = self.api_key is None
-        if self.use_mock:
-            print("[WARNING] No API key - using mock weather data for demonstration")
-    
-    def _generate_mock_forecast(self, lat: float, lon: float) -> List[WindCondition]:
-        """Generate realistic mock forecast for testing without API."""
-        # Use a fixed base date that aligns with typical race times (March 2026)
-        base_date = datetime(2026, 3, 9, 12, 0, 0)  # Monday March 9, 2026 at noon
-        
-        conditions = []
-        
-        for i in range(16):  # 48 hours, 3-hour intervals
-            dt = base_date + timedelta(hours=3*i)
-            
-            # Simulate varying wind conditions (2-7 m/s, shifting direction)
-            # More realistic: winds build through afternoon, shift direction
-            hour_of_day = dt.hour
-            base_speed = 2 + 3 * (hour_of_day / 24)  # Stronger in afternoon
-            variation = 2 * math.sin(i * 0.7)
-            wind_speed = max(1, base_speed + variation)
-            
-            # Wind direction shifts through the day (e.g., sea breeze pattern)
-            wind_dir = (180 + 60 * math.sin(i * 0.4)) % 360
-            
-            conditions.append(WindCondition(
-                timestamp=dt,
-                wind_speed_ms=wind_speed,
-                wind_direction_deg=wind_dir,
-                wind_gust_ms=wind_speed * 1.15,
-                temperature_c=10 + 8 * math.sin(i * 0.3),
-                precipitation_mm=0
-            ))
-        
-        return conditions
+    def __init__(self, manual_forecast: Optional[str] = None):
+        """
+        Args:
+            manual_forecast: Optional manual forecast string 
+                            (format: "HH:MM:speed@dir,HH:MM:speed@dir,...")
+        """
+        self.manual_forecast = manual_forecast
+        self.free_client = FreeWeatherClient()
     
     def get_forecast(self, lat: float, lon: float) -> List[WindCondition]:
-        """Get 5-day/3-hour forecast for location."""
-        if self.use_mock:
-            return self._generate_mock_forecast(lat, lon)
+        """Get forecast using free providers or manual entry."""
+        if self.manual_forecast:
+            print(f"[Weather] Using manual forecast: {self.manual_forecast}")
+            return parse_manual_forecast(self.manual_forecast)
         
-        url = f"{self.BASE_URL}/forecast"
-        params = {
-            "lat": lat,
-            "lon": lon,
-            "appid": self.api_key,
-            "units": "metric"
-        }
+        # Use free providers (Open-Meteo, MET Norway, NOAA)
+        conditions = self.free_client.get_forecast(lat, lon)
         
-        try:
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            
-            conditions = []
-            for entry in data.get("list", []):
-                dt = datetime.fromtimestamp(entry["dt"])
-                wind = entry.get("wind", {})
-                main = entry.get("main", {})
-                rain = entry.get("rain", {}).get("3h", 0)
-                
-                conditions.append(WindCondition(
-                    timestamp=dt,
-                    wind_speed_ms=wind.get("speed", 0),
-                    wind_direction_deg=wind.get("deg", 0),
-                    wind_gust_ms=wind.get("gust"),
-                    temperature_c=main.get("temp"),
-                    precipitation_mm=rain
-                ))
-            
-            return conditions
-            
-        except requests.exceptions.RequestException as e:
-            print(f"ERROR: Failed to fetch weather: {e}")
-            return []
+        # Convert to our WindCondition format (ensure naive datetimes)
+        result = []
+        for c in conditions:
+            ts = c.timestamp
+            if ts.tzinfo is not None:
+                ts = ts.replace(tzinfo=None)
+            result.append(WindCondition(
+                timestamp=ts,
+                wind_speed_ms=c.wind_speed_ms,
+                wind_direction_deg=c.wind_direction_deg,
+                wind_gust_ms=c.wind_gust_ms,
+                temperature_c=c.temperature_c,
+                precipitation_mm=c.precipitation_mm
+            ))
+        return result
     
     def get_current_weather(self, lat: float, lon: float) -> Optional[WindCondition]:
-        """Get current weather for location."""
-        url = f"{self.BASE_URL}/weather"
-        params = {
-            "lat": lat,
-            "lon": lon,
-            "appid": self.api_key,
-            "units": "metric"
-        }
-        
-        try:
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            
-            wind = data.get("wind", {})
-            main = data.get("main", {})
-            
-            return WindCondition(
-                timestamp=datetime.now(),
-                wind_speed_ms=wind.get("speed", 0),
-                wind_direction_deg=wind.get("deg", 0),
-                wind_gust_ms=wind.get("gust"),
-                temperature_c=main.get("temp"),
-                precipitation_mm=data.get("rain", {}).get("1h", 0)
-            )
-            
-        except requests.exceptions.RequestException as e:
-            print(f"ERROR: Failed to fetch current weather: {e}")
-            return None
+        """Get current weather (uses first forecast hour as approximation)."""
+        conditions = self.get_forecast(lat, lon)
+        if conditions:
+            # Find condition closest to now
+            now = datetime.now()
+            return min(conditions, key=lambda c: abs((c.timestamp - now).total_seconds()))
+        return None
 
 
 # =============================================================================
@@ -582,7 +521,7 @@ def print_strategy_recommendations(rider_impacts: List[WindImpact],
 # =============================================================================
 
 def analyze_itt_weather(race_slug: str, year: int, stage_num: int,
-                        api_key: Optional[str] = None,
+                        manual_forecast: Optional[str] = None,
                         course_bearing: float = 0) -> None:
     """Complete ITT weather analysis workflow."""
     
@@ -615,19 +554,14 @@ def analyze_itt_weather(race_slug: str, year: int, stage_num: int,
     
     # 3. Fetch weather
     print("\nFetching weather forecast...")
-    try:
-        client = OpenWeatherClient(api_key)
-        conditions = client.get_forecast(lat, lon)
-        
-        if not conditions:
-            print("ERROR: No weather data available")
-            return
-        
-        print(f"Retrieved {len(conditions)} forecast intervals")
-        
-    except ValueError as e:
-        print(f"ERROR: {e}")
+    client = WeatherClient(manual_forecast=manual_forecast)
+    conditions = client.get_forecast(lat, lon)
+    
+    if not conditions:
+        print("ERROR: No weather data available")
         return
+    
+    print(f"Retrieved {len(conditions)} forecast intervals")
     
     # 4. Get startlist
     global rider_starts
@@ -763,24 +697,25 @@ def analyze_itt_weather(race_slug: str, year: int, stage_num: int,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Weather Race Analyzer - ITT Wind Arbitrage Tool",
+        description="Weather Race Analyzer - ITT Wind Arbitrage Tool (FREE - no API key needed)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Basic analysis
+    # Basic analysis (uses free Open-Meteo API - no key needed!)
     python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
     
-    # With API key
-    python weather_race_analyzer.py --race paris-nice --year 2026 --stage 1 \\
-        --api-key YOUR_OPENWEATHER_KEY
+    # Manual forecast entry (no internet needed)
+    python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1 \\
+        --manual "14:00:5.2@180,15:00:6.8@200,16:00:4.1@220"
     
     # Specify course direction (0=North, 90=East, etc.)
     python weather_race_analyzer.py --race tour-de-france --year 2025 --stage 21 \\
         --bearing 180
         
-Environment:
-    Set OPENWEATHER_API_KEY environment variable for automatic authentication.
-    Get free API key at: https://openweathermap.org/api
+Notes:
+    - Uses free Open-Meteo API by default (global coverage, hourly data)
+    - For European races, automatically uses MET Norway (very accurate)
+    - Manual mode allows entry without any API calls
         """
     )
     
@@ -790,8 +725,8 @@ Environment:
                        help="Race year (e.g., 2026)")
     parser.add_argument("--stage", "-s", type=int, required=True,
                        help="Stage number (e.g., 1)")
-    parser.add_argument("--api-key", "-k",
-                       help="OpenWeatherMap API key (or set OPENWEATHER_API_KEY env var)")
+    parser.add_argument("--manual", "-m",
+                       help="Manual forecast (format: 'HH:MM:speed@dir,HH:MM:speed@dir')")
     parser.add_argument("--bearing", "-b", type=float, default=0,
                        help="Course bearing in degrees (0=North, 90=East, 180=South, 270=West)")
     parser.add_argument("--itt", action="store_true",
@@ -806,7 +741,7 @@ Environment:
         race_slug=args.race,
         year=args.year,
         stage_num=args.stage,
-        api_key=args.api_key,
+        manual_forecast=args.manual,
         course_bearing=args.bearing
     )
 
