@@ -1,0 +1,18 @@
+# H2H Matchups Template
+# Edit this file with your matchups, one per line
+# Lines starting with # are comments
+# Format: Rider A vs Rider B
+# Supports "Das Feld" or "The Field" for field bets
+
+# Paris-Nice Stage 2 Examples:
+# Zingle vs Godon
+# Girmay vs Fretin
+# Lamperti vs Braet
+# Ayuso vs Vingegaard
+# Bauhaus vs Ackermann
+
+# The Field examples:
+# Lamperti vs Das Feld
+# Girmay vs The Field
+
+# Add your matchups below:
