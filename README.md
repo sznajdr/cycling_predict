@@ -262,6 +262,13 @@ Three strategies tested:
 
 ---
 
+
+<img width="1346" height="838" alt="image" src="https://github.com/user-attachments/assets/ae2514a6-9025-4869-9a98-b6666381c192" />
+
+
+
+
+
 ## 5. Project Structure
 
 ```
