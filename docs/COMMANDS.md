@@ -251,7 +251,20 @@ For "The Field" matchups:
 P(A beats Field) = P(A wins) / (1 - P(A wins))
 ```
 
-The script loads pre-computed probabilities from `strategy_outputs` (or runs the ranking model if none exist) and calculates fair odds for each matchup.
+**Important:** The script reads **saved** probabilities from `strategy_outputs` table. It does NOT compute fresh probabilities. 
+
+**Workflow:**
+1. Run `rank_stage.py --save` to compute and save fresh probabilities
+2. Run `h2h.py` to query those saved probabilities
+
+**Data Freshness Warning:**
+If data is >1 hour old, you'll see:
+```
+WARNING: Data is 7.7 hours old. Run with --save to refresh:
+  python scripts/rank_stage.py paris-nice 2026 2 --save
+```
+
+This ensures H2H probabilities always match the ranking output exactly.
 
 ### Single Matchup
 

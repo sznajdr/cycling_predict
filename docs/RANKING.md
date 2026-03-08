@@ -389,6 +389,23 @@ The **Signals** line shows effective weights after renormalisation for the activ
 
 The `h2h.py` script computes head-to-head matchup probabilities from the stage ranking model. Useful for duel markets or comparing specific riders.
 
+### How It Works
+
+The script loads **saved** probabilities from `strategy_outputs` table and computes conditional probabilities:
+
+```
+P(A beats B) = P(A wins) / (P(A wins) + P(B wins))
+P(A beats Field) = P(A wins) / (1 - P(A wins))
+```
+
+**⚠️ Important:** H2H does NOT compute fresh probabilities. It reads from the database. If you see:
+```
+WARNING: Data is 7.7 hours old. Run with --save to refresh:
+  python scripts/rank_stage.py paris-nice 2026 2 --save
+```
+
+Run the rank command with `--save` to update the database, then re-run H2H.
+
 ### Usage
 
 ```bash
