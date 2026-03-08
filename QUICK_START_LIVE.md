@@ -6,7 +6,7 @@
 
 In VS Code PowerShell:
 ```powershell
-cd C:\Users\danie\Downloads\nkls\cycling_predict
+cd path\to\cycling_predict
 ```
 
 ### Step 2: Launch Dashboard

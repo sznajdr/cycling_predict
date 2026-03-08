@@ -1,9 +1,9 @@
 """
 Stage Ranking Model.
 
-Combines five signals (specialty, historical, frailty, tactical, gc_relevance)
-into softmax probabilities, computes edge vs. live Betclic odds, and sizes
-stakes via half-Kelly.
+Combines six signals (specialty, historical, frailty, tactical, gc_relevance,
+form) into softmax probabilities, computes edge vs. live Betclic odds, and
+sizes stakes via half-Kelly.
 """
 from __future__ import annotations
 
@@ -24,12 +24,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 WEIGHTS: Dict[str, Dict[str, float]] = {
-    'flat':     {'specialty': 0.40, 'historical': 0.30, 'frailty': 0.15, 'tactical': 0.10, 'gc_relevance': 0.05},
-    'hilly':    {'specialty': 0.30, 'historical': 0.30, 'frailty': 0.20, 'tactical': 0.10, 'gc_relevance': 0.10},
-    'mountain': {'specialty': 0.25, 'historical': 0.25, 'frailty': 0.20, 'tactical': 0.10, 'gc_relevance': 0.20},
-    'itt':      {'specialty': 0.50, 'historical': 0.30, 'frailty': 0.15, 'tactical': 0.00, 'gc_relevance': 0.05},
-    'ttt':      {'specialty': 0.40, 'historical': 0.30, 'frailty': 0.20, 'tactical': 0.00, 'gc_relevance': 0.10},
+    'flat':     {'specialty': 0.30, 'historical': 0.25, 'frailty': 0.15, 'tactical': 0.10, 'gc_relevance': 0.05, 'form': 0.15},
+    'hilly':    {'specialty': 0.25, 'historical': 0.25, 'frailty': 0.15, 'tactical': 0.10, 'gc_relevance': 0.10, 'form': 0.15},
+    'mountain': {'specialty': 0.20, 'historical': 0.20, 'frailty': 0.15, 'tactical': 0.10, 'gc_relevance': 0.20, 'form': 0.15},
+    'itt':      {'specialty': 0.40, 'historical': 0.25, 'frailty': 0.15, 'tactical': 0.00, 'gc_relevance': 0.05, 'form': 0.15},
+    'ttt':      {'specialty': 0.30, 'historical': 0.25, 'frailty': 0.15, 'tactical': 0.00, 'gc_relevance': 0.10, 'form': 0.20},
 }
+
+# Power-to-weight adjustment proxy for mountain stages
+MEDIAN_WEIGHT_KG = 65.0
 
 # (min_top_prob, max_top_prob) — bisect T until max(softmax) hits midpoint
 TEMPERATURE_TARGET: Dict[str, tuple] = {
@@ -76,6 +79,8 @@ class RiderSignals:
     frailty_signal: Optional[float]      # None = rider_frailty table empty
     tactical_signal: Optional[float]     # None = Stage 1 or tactical_states empty
     gc_relevance_signal: float           # always set (0.5 = neutral/no data)
+    form_signal: Optional[float] = None  # None = no races in last 90 days
+    form_n_races: int = 0                # how many recent stages contributed
     no_history_flag: bool = False        # True = median fallback used
     raw_score: float = 0.0
     model_prob: float = 0.0
@@ -98,6 +103,7 @@ class StageRankingResult:
     weights_used: Dict[str, float]
     signals_active: List[str]
     riders: List[RiderSignals]
+    is_uphill_finish: bool = False
     computed_at: datetime = field(default_factory=datetime.utcnow)
 
     def save_to_db(self, conn: sqlite3.Connection) -> int:
@@ -111,10 +117,13 @@ class StageRankingResult:
                 'frailty': rs.frailty_signal,
                 'tactical': rs.tactical_signal,
                 'gc_relevance': rs.gc_relevance_signal,
+                'form': rs.form_signal,
+                'form_n_races': rs.form_n_races,
                 'raw_score': rs.raw_score,
                 'no_history_flag': rs.no_history_flag,
                 'temperature': self.temperature,
                 'stage_type': self.stage_type,
+                'is_uphill_finish': self.is_uphill_finish,
             }
             rows.append((
                 'stage_ranking',
@@ -191,18 +200,23 @@ class StageRankingModel:
             raise ValueError(f"No startlist found for {race_slug} {year}")
         field_size = len(riders)
 
-        # Compute all five signals
-        specialty_scores  = self._compute_specialty_signals(riders, stage_type)
+        is_uphill_finish, _ = self._get_finish_type(conn, stage_id)
+
+        # Compute all six signals
+        specialty_scores  = self._compute_specialty_signals(riders, stage_type, is_uphill_finish)
         historical_scores = self._compute_historical_signals(conn, riders, race_slug, year, stage_type)
         frailty_scores    = self._compute_frailty_signals(conn, riders)
         tactical_scores   = self._compute_tactical_signals(conn, riders, race_slug, year, stage_number, stage_type)
         gc_scores         = self._compute_gc_signals(conn, riders, race_slug, year, stage_number, stage_type)
+        rider_ids         = [r['rider_id'] for r in riders]
+        form_scores       = self._compute_form_signals(conn, rider_ids, race_slug, year)
 
         weights = WEIGHTS.get(stage_type, WEIGHTS['flat'])
         rider_signals: List[RiderSignals] = []
         for r in riders:
             rid = r['rider_id']
             hist = historical_scores.get(rid, {})
+            form_entry = form_scores.get(rid, {})
             rs = RiderSignals(
                 rider_id=rid,
                 rider_name=r['rider_name'],
@@ -211,6 +225,8 @@ class StageRankingModel:
                 frailty_signal=frailty_scores.get(rid),
                 tactical_signal=tactical_scores.get(rid),
                 gc_relevance_signal=gc_scores.get(rid, 0.5),
+                form_signal=form_entry.get('signal'),
+                form_n_races=form_entry.get('n_races', 0),
                 no_history_flag=hist.get('fallback', False),
             )
             rs.raw_score = self._compute_raw_score(rs, weights)
@@ -230,7 +246,7 @@ class StageRankingModel:
 
         # Signals with at least one non-None value across the field
         signals_active: List[str] = []
-        for sig in ('specialty', 'historical', 'frailty', 'tactical', 'gc_relevance'):
+        for sig in ('specialty', 'historical', 'frailty', 'tactical', 'gc_relevance', 'form'):
             attr = f'{sig}_signal'
             if any(getattr(r, attr, None) is not None for r in rider_signals):
                 signals_active.append(sig)
@@ -247,6 +263,7 @@ class StageRankingModel:
             weights_used=weights,
             signals_active=signals_active,
             riders=rider_signals,
+            is_uphill_finish=is_uphill_finish,
         )
 
     # ------------------------------------------------------------------
@@ -265,7 +282,8 @@ class StageRankingModel:
         return conn.execute("""
             SELECT se.rider_id, ri.name AS rider_name,
                 ri.sp_sprint, ri.sp_hills, ri.sp_climber,
-                ri.sp_time_trial, ri.sp_gc, ri.sp_one_day_races
+                ri.sp_time_trial, ri.sp_gc, ri.sp_one_day_races,
+                ri.weight_kg
             FROM startlist_entries se
             JOIN riders ri ON se.rider_id = ri.id
             JOIN races r ON se.race_id = r.id
@@ -276,17 +294,52 @@ class StageRankingModel:
     # Signal computation
     # ------------------------------------------------------------------
 
-    def _compute_specialty_signals(self, riders: list, stage_type: str) -> Dict[int, Optional[float]]:
-        col = _SPECIALTY_COL.get(stage_type, 'sp_sprint')
+    def _compute_specialty_signals(
+        self, riders: list, stage_type: str, is_uphill_finish: bool = False
+    ) -> Dict[int, Optional[float]]:
+        # --- Blending: determine which columns to mix and at what weights ---
+        if stage_type == 'flat' and is_uphill_finish:
+            blend = [('sp_sprint', 0.40), ('sp_climber', 0.60)]
+        elif stage_type == 'hilly' and is_uphill_finish:
+            blend = [('sp_hills', 0.50), ('sp_climber', 0.50)]
+        else:
+            blend = [(_SPECIALTY_COL.get(stage_type, 'sp_sprint'), 1.0)]
+
+        # --- Compute blended raw score per rider ---
         raw: Dict[int, float] = {}
         for r in riders:
-            val = r[col]
-            if val is not None:
-                raw[r['rider_id']] = float(val)
+            rid = r['rider_id']
+            score = 0.0
+            total_alpha = 0.0
+            for col, alpha in blend:
+                val = r[col]
+                if val is not None:
+                    score += alpha * float(val)
+                    total_alpha += alpha
+            if total_alpha > 0:
+                raw[rid] = score / total_alpha  # renormalise if a col was missing
 
         if not raw:
             return {r['rider_id']: None for r in riders}
 
+        # --- Power-to-weight adjustment for mountain/uphill-hilly stages ---
+        apply_ptw = stage_type == 'mountain' or (stage_type == 'hilly' and is_uphill_finish)
+        if apply_ptw:
+            adjusted: Dict[int, float] = {}
+            for r in riders:
+                rid = r['rider_id']
+                if rid not in raw:
+                    continue
+                wkg = r['weight_kg']
+                if wkg:
+                    factor = MEDIAN_WEIGHT_KG / float(wkg)
+                    factor = max(0.80, min(1.30, factor))
+                    adjusted[rid] = raw[rid] * factor
+                else:
+                    adjusted[rid] = raw[rid]
+            raw = adjusted
+
+        # --- Min-max normalise across the field ---
         vals = list(raw.values())
         mn, mx = min(vals), max(vals)
         rng = mx - mn
@@ -449,6 +502,125 @@ class StageRankingModel:
                 result[rid] = 0.50
         return result
 
+    def _get_finish_type(self, conn, stage_id: int):
+        """Return (is_uphill, dist_km) based on closest climb to this stage's finish.
+
+        race_climbs.km_before_finish is relative to the race finish (not stage
+        finish). We map climbs to stages using cumulative stage distances, then
+        check whether any climb ends within 2 km of this stage's finish line.
+        """
+        # Get this stage's race + cumulative distances via window functions
+        stage_info = conn.execute("""
+            WITH stage_cumulative AS (
+                SELECT
+                    id,
+                    race_id,
+                    stage_number,
+                    SUM(COALESCE(distance_km, 0)) OVER (
+                        PARTITION BY race_id
+                        ORDER BY stage_number
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                    ) AS cum_dist_end,
+                    COALESCE(SUM(COALESCE(distance_km, 0)) OVER (
+                        PARTITION BY race_id
+                        ORDER BY stage_number
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                    ), 0) AS cum_dist_start,
+                    SUM(COALESCE(distance_km, 0)) OVER (
+                        PARTITION BY race_id
+                    ) AS total_race_dist
+                FROM race_stages
+            )
+            SELECT race_id, total_race_dist, cum_dist_end, cum_dist_start
+            FROM stage_cumulative
+            WHERE id = ?
+        """, (stage_id,)).fetchone()
+
+        if stage_info is None:
+            return (False, None)
+
+        race_id = stage_info['race_id']
+        total = stage_info['total_race_dist'] or 0
+        if total == 0:
+            return (False, None)
+
+        # km_before_finish is measured from the race finish.
+        # Climbs in this stage have km_before_finish in:
+        #   [(total - cum_dist_end), (total - cum_dist_start)]
+        # The closest climb to this stage's finish line has the
+        # smallest km_before_finish in that range.
+        stage_finish_kbf = total - (stage_info['cum_dist_end'] or 0)
+        stage_start_kbf  = total - (stage_info['cum_dist_start'] or 0)
+
+        row = conn.execute("""
+            SELECT km_before_finish, climb_name, steepness_pct
+            FROM race_climbs
+            WHERE race_id = ?
+              AND km_before_finish IS NOT NULL
+              AND km_before_finish >= ?
+              AND km_before_finish <= ?
+            ORDER BY km_before_finish ASC
+            LIMIT 1
+        """, (race_id, stage_finish_kbf, stage_start_kbf)).fetchone()
+
+        if row is None:
+            return (False, None)
+
+        # Distance from that climb's top to this stage's finish line
+        dist_from_finish = float(row['km_before_finish']) - stage_finish_kbf
+        if dist_from_finish <= 2.0:
+            return (True, round(dist_from_finish, 2))
+        return (False, None)
+
+    def _compute_form_signals(
+        self, conn, rider_ids: list, race_slug: str, year: int
+    ) -> Dict[int, dict]:
+        """Exponentially-decayed rank percentile across all races in last 90 days."""
+        if not rider_ids:
+            return {}
+
+        placeholders = ','.join('?' * len(rider_ids))
+        rows = conn.execute(f"""
+            WITH field_sizes AS (
+                SELECT rr2.stage_id, COUNT(*) AS field_size
+                FROM rider_results rr2
+                WHERE rr2.result_category = 'stage'
+                  AND CAST(rr2.rank AS INTEGER) > 0
+                GROUP BY rr2.stage_id
+            ),
+            decayed AS (
+                SELECT
+                    rr.rider_id,
+                    (1.0 - CAST(rr.rank AS REAL) / fs.field_size)
+                        * EXP(-CAST(JULIANDAY('now') - JULIANDAY(rs.stage_date) AS REAL) / 30.0) AS weighted_pct,
+                    EXP(-CAST(JULIANDAY('now') - JULIANDAY(rs.stage_date) AS REAL) / 30.0) AS weight,
+                    COUNT(*) OVER (PARTITION BY rr.rider_id) AS n_obs
+                FROM rider_results rr
+                JOIN race_stages rs ON rr.stage_id = rs.id
+                JOIN field_sizes fs ON fs.stage_id = rr.stage_id
+                WHERE rr.result_category = 'stage'
+                  AND CAST(rr.rank AS INTEGER) > 0
+                  AND rs.stage_date >= DATE('now', '-90 days')
+                  AND rr.rider_id IN ({placeholders})
+            )
+            SELECT rider_id,
+                   SUM(weighted_pct) / SUM(weight) AS form_score,
+                   MAX(n_obs) AS n_races
+            FROM decayed
+            GROUP BY rider_id
+        """, rider_ids).fetchall()
+
+        result: Dict[int, dict] = {}
+        for row in rows:
+            score = row['form_score']
+            n = row['n_races'] or 0
+            if score is not None and n > 0:
+                result[row['rider_id']] = {
+                    'signal': max(0.0, min(1.0, float(score))),
+                    'n_races': int(n),
+                }
+        return result
+
     # ------------------------------------------------------------------
     # Score, softmax, temperature calibration
     # ------------------------------------------------------------------
@@ -460,6 +632,7 @@ class StageRankingModel:
             'frailty':      rs.frailty_signal,
             'tactical':     rs.tactical_signal,
             'gc_relevance': rs.gc_relevance_signal,
+            'form':         rs.form_signal,
         }
         active = {k: v for k, v in signal_map.items() if v is not None}
         if not active:

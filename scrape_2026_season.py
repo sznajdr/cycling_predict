@@ -16,13 +16,11 @@ import sys
 import time
 from datetime import datetime
 
-# Add parent directory for procyclingstats
-sys.path.insert(0, '..')
-
-from procyclingstats import Rider, RiderResults, Race
-from pipeline.db import get_connection, upsert_rider, upsert_race, upsert_stage
-from pipeline.db import upsert_startlist_entry, upsert_rider_result
-from pipeline.fetcher import fetch_rider_profile, fetch_rider_results
+# Use existing pipeline infrastructure
+from procyclingstats import RiderResults
+from pipeline.db import get_connection
+from pipeline.fetcher import fetch_race_meta
+from pipeline.runner import main as pipeline_main
 
 
 def get_target_riders(race_slug, year):
@@ -54,8 +52,9 @@ def get_target_riders(race_slug, year):
 def get_rider_2026_races(pcs_url):
     """Get all 2026 races for a rider."""
     try:
-        rider_results = RiderResults(pcs_url)
-        results = rider_results.results()
+        results_url = f"{pcs_url}/results"
+        rr = RiderResults(results_url)
+        results = rr.results("stage_url", "rank", "date", "pcs_points", "uci_points")
         
         races_2026 = []
         for result in results:
@@ -64,11 +63,12 @@ def get_rider_2026_races(pcs_url):
             if not stage_url:
                 continue
             
-            # Extract year from URL
+            # Extract year from URL (format: race/slug/year/...)
             parts = stage_url.split('/')
             if len(parts) >= 3:
                 try:
-                    year = int(parts[-2]) if parts[-2].isdigit() else 0
+                    year_str = parts[-2] if len(parts) >= 2 else ''
+                    year = int(year_str) if year_str.isdigit() else 0
                     if year == 2026:
                         race_slug = parts[-3] if len(parts) >= 3 else ''
                         if race_slug and race_slug not in [r['slug'] for r in races_2026]:
@@ -77,7 +77,7 @@ def get_rider_2026_races(pcs_url):
                                 'year': year,
                                 'url': f"race/{race_slug}/{year}"
                             })
-                except:
+                except (ValueError, IndexError):
                     continue
         
         return races_2026
@@ -87,57 +87,64 @@ def get_rider_2026_races(pcs_url):
         return []
 
 
-def scrape_race_if_missing(race_slug, year):
-    """Scrape a race if not already in database."""
+def race_exists_in_db(race_slug, year):
+    """Check if race is already in database."""
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Check if exists
     existing = cursor.execute(
         'SELECT id FROM races WHERE pcs_slug = ? AND year = ?',
         (race_slug, year)
     ).fetchone()
     
-    if existing:
-        return True, "Already in DB"
-    
     conn.close()
+    return existing is not None
+
+
+def add_race_to_queue(race_slug, year):
+    """Add race to fetch_queue for scraping."""
+    conn = get_connection()
+    cursor = conn.cursor()
     
-    # Scrape it
+    # Check if already in queue
+    existing = cursor.execute('''
+        SELECT id FROM fetch_queue 
+        WHERE job_type = 'race_meta' AND pcs_slug = ? AND year = ?
+    ''', (race_slug, year)).fetchone()
+    
+    if existing:
+        return True, "Already in queue"
+    
+    # Add to queue
     try:
-        print(f"      Scraping {race_slug} {year}...")
+        cursor.execute('''
+            INSERT OR IGNORE INTO fetch_queue 
+            (job_type, pcs_slug, year, status, priority, max_retries)
+            VALUES ('race_meta', ?, ?, 'pending', 1, 3)
+        ''', (race_slug, year))
         
-        # Fetch race meta
-        from pipeline.fetcher import fetch_race_meta
-        race_data = fetch_race_meta(race_slug, year)
-        
-        if not race_data:
-            return False, "Failed to fetch"
-        
-        # Store race
-        conn = get_connection()
-        race_id = upsert_race(conn, race_data)
-        
-        # Store stages
-        for stage in race_data.get('stages', []):
-            upsert_stage(conn, race_id, stage)
+        # Also add startlist job
+        cursor.execute('''
+            INSERT OR IGNORE INTO fetch_queue 
+            (job_type, pcs_slug, year, status, priority, max_retries)
+            VALUES ('race_startlist', ?, ?, 'pending', 2, 3)
+        ''', (race_slug, year))
         
         conn.commit()
-        conn.close()
-        
-        time.sleep(1)  # Rate limit
-        return True, "Scraped successfully"
-        
+        return True, "Added to queue"
     except Exception as e:
         return False, str(e)
+    finally:
+        conn.close()
 
 
 def main():
     parser = argparse.ArgumentParser(description='Scrape 2026 season data for target race riders')
     parser.add_argument('--race', default='paris-nice', help='Target race slug (default: paris-nice)')
     parser.add_argument('--year', type=int, default=2026, help='Target year (default: 2026)')
-    parser.add_argument('--max-races', type=int, default=50, help='Max races to scrape (default: 50)')
+    parser.add_argument('--max-races', type=int, default=50, help='Max races to add (default: 50)')
     parser.add_argument('--rider-limit', type=int, default=0, help='Limit to N riders (0 = all)')
+    parser.add_argument('--run-pipeline', action='store_true', help='Auto-run pipeline after adding races')
     
     args = parser.parse_args()
     
@@ -163,21 +170,26 @@ def main():
     
     # Collect all 2026 races
     print("Step 2: Finding 2026 races for each rider...")
-    all_races = {}  # slug -> year
+    all_races = {}  # slug -> race_info
     
     for i, (rider_id, pcs_url, name) in enumerate(riders, 1):
-        print(f"  [{i}/{len(riders)}] {name}...", end=" ")
+        print(f"  [{i}/{len(riders)}] {name}...", end=" ", flush=True)
         
-        races = get_rider_2026_races(pcs_url)
-        print(f"found {len(races)} races")
+        try:
+            races = get_rider_2026_races(pcs_url)
+            print(f"found {len(races)} races")
+            
+            for race in races:
+                key = (race['slug'], race['year'])
+                if key not in all_races:
+                    all_races[key] = race
+        except Exception as e:
+            print(f"error: {e}")
         
-        for race in races:
-            key = (race['slug'], race['year'])
-            if key not in all_races:
-                all_races[key] = race
+        time.sleep(0.5)  # Rate limit
     
     print()
-    print(f"Total unique 2026 races to check: {len(all_races)}")
+    print(f"Total unique 2026 races found: {len(all_races)}")
     print()
     
     # Filter out target race itself
@@ -187,33 +199,41 @@ def main():
     print(f"After excluding target race: {len(all_races)} races")
     print()
     
-    # Sort by importance (you might want to prioritize certain races)
-    # For now, just take first N
-    races_to_scrape = list(all_races.values())[:args.max_races]
+    # Check which races need scraping
+    print("Step 3: Checking which races need scraping...")
+    races_to_add = []
     
-    # Scrape races
-    print("Step 3: Scraping missing races...")
+    for key, race in list(all_races.items())[:args.max_races]:
+        if race_exists_in_db(race['slug'], race['year']):
+            print(f"  {race['slug']} {race['year']}: Already in DB")
+        else:
+            print(f"  {race['slug']} {race['year']}: Will add to queue")
+            races_to_add.append(race)
+    
+    print()
+    print(f"Races to add to queue: {len(races_to_add)}")
     print()
     
-    success_count = 0
-    fail_count = 0
-    already_count = 0
+    if not races_to_add:
+        print("All races already in database!")
+        return
     
-    for i, race in enumerate(races_to_scrape, 1):
-        print(f"  [{i}/{len(races_to_scrape)}] {race['slug']} {race['year']}...", end=" ")
-        
-        success, msg = scrape_race_if_missing(race['slug'], race['year'])
-        
+    # Add to queue
+    print("Step 4: Adding races to job queue...")
+    added = 0
+    failed = 0
+    
+    for race in races_to_add:
+        success, msg = add_race_to_queue(race['slug'], race['year'])
         if success:
-            if msg == "Already in DB":
-                already_count += 1
-                print("already in DB")
+            if "Already" in msg:
+                print(f"  {race['slug']}: {msg}")
             else:
-                success_count += 1
-                print("scraped ✓")
+                print(f"  {race['slug']}: Added")
+                added += 1
         else:
-            fail_count += 1
-            print(f"failed: {msg}")
+            print(f"  {race['slug']}: Failed - {msg}")
+            failed += 1
     
     print()
     print("="*70)
@@ -221,15 +241,21 @@ def main():
     print("="*70)
     print(f"Riders analyzed: {len(riders)}")
     print(f"Races found: {len(all_races)}")
-    print(f"Races attempted: {len(races_to_scrape)}")
-    print(f"  - Already in DB: {already_count}")
-    print(f"  - Scraped: {success_count}")
-    print(f"  - Failed: {fail_count}")
+    print(f"Races added to queue: {added}")
+    print(f"Races already in DB: {len(all_races) - len(races_to_add)}")
+    if failed > 0:
+        print(f"Failed: {failed}")
     print()
-    print("Next steps:")
-    print("  1. Run: python -m pipeline.runner (to process job queue)")
-    print("  2. Run: python rank_stage.py paris-nice 2026 1 --run-models")
-    print("  3. Check updated predictions with 2026 form data")
+    
+    if args.run_pipeline and added > 0:
+        print("Step 5: Running pipeline to scrape new races...")
+        print()
+        pipeline_main()
+    else:
+        print("Next steps:")
+        print(f"  1. Run: python -m pipeline.runner")
+        print(f"  2. Or use: python monitor.py (to watch progress)")
+        print(f"  3. When done: python rank_stage.py {args.race} {args.year} 1 --run-models")
 
 
 if __name__ == '__main__':

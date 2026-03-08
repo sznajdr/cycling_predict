@@ -90,7 +90,7 @@ def _run_models(conn: sqlite3.Connection, race_slug: str, year: int) -> None:
             conn.commit()
             print(f"  Inserted frailty for {len(fe)} riders")
     else:
-        print(f"  Insufficient survival records ({len(all_survival)}) — skipping frailty")
+        print(f"  Insufficient survival records ({len(all_survival)}) - skipping frailty")
 
     # ---- Tactical ----
     if len(all_tactical) >= 10:
@@ -116,7 +116,7 @@ def _run_models(conn: sqlite3.Connection, race_slug: str, year: int) -> None:
         conn.commit()
         print(f"  Inserted {inserted} tactical state rows")
     else:
-        print(f"  Insufficient tactical observations ({len(all_tactical)}) — skipping tactical")
+        print(f"  Insufficient tactical observations ({len(all_tactical)}) - skipping tactical")
 
 
 # ---------------------------------------------------------------------------
@@ -126,14 +126,17 @@ def _run_models(conn: sqlite3.Connection, race_slug: str, year: int) -> None:
 def _format_result(result: StageRankingResult, top_n: int) -> None:
     race_display = result.race_slug.replace('-', ' ').title()
     dist_str = f" ({result.distance_km:.1f}km)" if result.distance_km else ""
+    stage_label = result.stage_type.upper()
+    if result.is_uphill_finish:
+        stage_label += "/UPHILL FINISH"
     print(f"\n{race_display} {result.year} Stage {result.stage_number}"
-          f" — {result.stage_type.upper()}{dist_str}")
+          f" - {stage_label}{dist_str}")
 
     # Signals header: show active weights renormalized, inactive as [x: no data]
     weights = result.weights_used
     active = result.signals_active
     w_sum = sum(weights.get(s, 0.0) for s in active)
-    all_signals = ['specialty', 'historical', 'frailty', 'tactical', 'gc_relevance']
+    all_signals = ['specialty', 'historical', 'form', 'frailty', 'tactical', 'gc_relevance']
     sig_parts = []
     for s in all_signals:
         label = s.replace('_', ' ')
@@ -151,7 +154,7 @@ def _format_result(result: StageRankingResult, top_n: int) -> None:
     # Table
     print()
     hdr = (
-        f"{'Rank':>5}  {'Rider':<24}  {'Spec':>6}  {'Hist':>7}  "
+        f"{'Rank':>5}  {'Rider':<24}  {'Spec':>6}  {'Hist':>7}  {'Form':>6}  "
         f"{'ModelProb':>9}  {'BkOdds':>7}  {'Edge(bps)':>9}  {'Kelly%':>6}"
     )
     print(hdr)
@@ -159,32 +162,42 @@ def _format_result(result: StageRankingResult, top_n: int) -> None:
 
     shown = result.riders[:top_n] if top_n else result.riders
     history_flag_used = False
+    form_none_shown = False
 
     for i, rs in enumerate(shown, 1):
-        spec_str = f"{rs.specialty_signal:.2f}" if rs.specialty_signal is not None else "  —  "
-        hist_str = f"{rs.historical_signal:.2f}" if rs.historical_signal is not None else "  —  "
+        spec_str = f"{rs.specialty_signal:.2f}" if rs.specialty_signal is not None else "  -  "
+        hist_str = f"{rs.historical_signal:.2f}" if rs.historical_signal is not None else "  -  "
         if rs.no_history_flag and rs.historical_signal is not None:
             hist_str += "*"
             history_flag_used = True
 
+        if rs.form_signal is not None:
+            form_str = f"{rs.form_signal:.2f}"
+        else:
+            form_str = "None*"
+            form_none_shown = True
+
         prob_str = f"{rs.model_prob:.1%}"
-        odds_str = f"{rs.back_odds:.1f}" if rs.back_odds else "  —  "
+        odds_str = f"{rs.back_odds:.1f}" if rs.back_odds else "  -  "
 
         if rs.edge_bps is not None:
             edge_str = f"+{rs.edge_bps:.0f}" if rs.edge_bps >= 0 else f"{rs.edge_bps:.0f}"
         else:
-            edge_str = "  —  "
+            edge_str = "  -  "
 
         kelly_str = f"{rs.kelly_pct:.1f}%" if rs.kelly_pct else ""
 
-        name = rs.rider_name[:24]
+        # Safe encoding for Windows console
+        name = rs.rider_name[:24].encode('ascii', 'replace').decode('ascii')
         print(
-            f"{i:>5}  {name:<24}  {spec_str:>6}  {hist_str:>8}  "
+            f"{i:>5}  {name:<24}  {spec_str:>6}  {hist_str:>8}  {form_str:>6}  "
             f"{prob_str:>9}  {odds_str:>7}  {edge_str:>9}  {kelly_str:>6}"
         )
 
     if history_flag_used:
         print("* no race history (median used)")
+    if form_none_shown:
+        print("* no results in last 90 days")
 
 
 # ---------------------------------------------------------------------------

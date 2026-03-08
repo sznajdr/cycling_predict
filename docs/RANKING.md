@@ -1,13 +1,13 @@
 # Stage Ranking Model
 
-Pre-race probability ranking that synthesises five signals — specialty, historical, frailty, tactical, and GC-relevance — into calibrated win probabilities for every rider on the startlist, layers live Betclic odds on top, and sizes stakes via half-Kelly.
+Pre-race probability ranking that synthesises six signals — specialty, historical, frailty, tactical, GC-relevance, and cross-race recent form — into calibrated win probabilities for every rider on the startlist, layers live Betclic odds on top, and sizes stakes via half-Kelly.
 
 ---
 
 ## Table of Contents
 
 1. [Why This Exists](#1-why-this-exists)
-2. [The Five Signals](#2-the-five-signals)
+2. [The Six Signals](#2-the-six-signals)
 3. [Weight Matrix](#3-weight-matrix)
 4. [Softmax Temperature Calibration](#4-softmax-temperature-calibration)
 5. [Odds Join and Edge Calculation](#5-odds-join-and-edge-calculation)
@@ -37,7 +37,7 @@ python rank_stage.py paris-nice 2026 1
 
 ---
 
-## 2. The Five Signals
+## 2. The Six Signals
 
 Each signal is a float in [0, 1] or `None` if data is unavailable.
 
@@ -47,7 +47,7 @@ Each signal is a float in [0, 1] or `None` if data is unavailable.
 
 **Source:** `riders.sp_sprint / sp_hills / sp_climber / sp_time_trial` (PCS specialty scores, 0–100).
 
-**Column used per stage type:**
+**Column used per stage type (flat-finish):**
 
 | Stage type | PCS column |
 |-----------|-----------|
@@ -56,7 +56,18 @@ Each signal is a float in [0, 1] or `None` if data is unavailable.
 | `mountain` | `sp_climber` |
 | `itt` / `ttt` | `sp_time_trial` |
 
-**Normalisation:** min-max across the startlist: `(score - field_min) / (field_max - field_min)`. A rider with no specialty score gets `None`.
+**Finish-type blending.** When `race_climbs` data shows the nearest climb ends ≤ 2 km from the finish (uphill finish), the specialty columns are blended:
+
+| Stage type | Uphill finish | Blend |
+|-----------|--------------|-------|
+| `flat` | Yes | 40% `sp_sprint` + 60% `sp_climber` |
+| `hilly` | Yes | 50% `sp_hills` + 50% `sp_climber` |
+| `mountain` | any | 100% `sp_climber` |
+| `itt` / `ttt` | any | 100% `sp_time_trial` |
+
+**Power-to-weight adjustment (mountains / uphill-hilly).** For mountain stages and uphill-finish hilly stages, each rider's raw specialty score is multiplied by `MEDIAN_WEIGHT_KG / rider.weight_kg` (capped at [0.80, 1.30]). A 58 kg climber with `sp_climber = 75` scores ~12% higher than a 73 kg rouleur with the same specialty score. Riders with unknown weight are unadjusted.
+
+**Normalisation:** min-max across the startlist after blending and P/W adjustment: `(score - field_min) / (field_max - field_min)`. A rider with no specialty score gets `None`.
 
 ---
 
@@ -108,6 +119,7 @@ Returns `None` for all riders if `stage_number = 1` (no prior stage) or `tactica
 
 ### Signal 5: GC Relevance
 
+
 **Source:** `rider_results.rank` with `result_category = 'gc'` for the previous stage.
 
 Unlike the other signals, this is always set — it defaults to `0.5` (neutral) when GC data is unavailable or it's Stage 1.
@@ -125,19 +137,38 @@ This encodes the basic strategic logic: on flat stages, GC relevance *reduces* w
 
 ---
 
+### Signal 6: Cross-Race Recent Form
+
+**Source:** `rider_results` across **all races in the DB** for the last 90 days.
+
+**Method.** For each stage result in the 90-day window, compute a rank percentile and apply exponential time-decay with a 30-day constant (half-life ≈ 20 days). Aggregate per rider:
+
+```
+form_score = Σ (percentile_i × weight_i) / Σ weight_i
+where weight_i = exp(-(days_ago_i) / 30)
+```
+
+`form_score = 1.0` means the rider won every race in the window at the most recent date. `form_score = 0.0` means last in every race.
+
+**Fallback.** Riders with no results in the last 90 days → `form_signal = None`. The weight for this signal is redistributed to the remaining active signals (same graceful-degradation mechanism as other signals).
+
+This signal directly addresses the *first-timer problem*: a rider making their Paris-Nice debut after winning Strade Bianche and finishing 2nd at Tirreno is correctly rated high rather than assigned the field median.
+
+---
+
 ## 3. Weight Matrix
 
 Each stage type has a fixed set of base weights that sum to 1.0:
 
-| Stage type | Specialty | Historical | Frailty | Tactical | GC Relevance |
-|-----------|-----------|-----------|--------|---------|-------------|
-| `flat` | 0.40 | 0.30 | 0.15 | 0.10 | 0.05 |
-| `hilly` | 0.30 | 0.30 | 0.20 | 0.10 | 0.10 |
-| `mountain` | 0.25 | 0.25 | 0.20 | 0.10 | 0.20 |
-| `itt` | 0.50 | 0.30 | 0.15 | 0.00 | 0.05 |
-| `ttt` | 0.40 | 0.30 | 0.20 | 0.00 | 0.10 |
+| Stage type | Specialty | Historical | Frailty | Tactical | GC Relevance | Form |
+|-----------|-----------|-----------|--------|---------|-------------|------|
+| `flat` | 0.30 | 0.25 | 0.15 | 0.10 | 0.05 | 0.15 |
+| `hilly` | 0.25 | 0.25 | 0.15 | 0.10 | 0.10 | 0.15 |
+| `mountain` | 0.20 | 0.20 | 0.15 | 0.10 | 0.20 | 0.15 |
+| `itt` | 0.40 | 0.25 | 0.15 | 0.00 | 0.05 | 0.15 |
+| `ttt` | 0.30 | 0.25 | 0.15 | 0.00 | 0.10 | 0.20 |
 
-Tactical weight is zero for ITT/TTT — tactical preserving on road stages is not predictive of TT performance. GC relevance is highest on mountains, where it carries real signal about who will race aggressively.
+Tactical weight is zero for ITT/TTT — tactical preserving on road stages is not predictive of TT performance. GC relevance is highest on mountains, where it carries real signal about who will race aggressively. Form gets a higher weight in TTT (0.20) because recent team coherence matters more than specialty scores.
 
 When signals are missing (see [Section 10](#10-graceful-degradation)), weights are renormalised across available signals before scoring.
 
@@ -235,16 +266,23 @@ python rank_stage.py paris-nice 2026 1 --db /path/to/custom.db
 
 ```
 Paris-Nice 2026 Stage 1 — FLAT (170.9km)
-Signals: specialty(0.54) historical(0.40) [frailty: no data] [tactical: no data] gc_relevance(0.06)
+Signals: specialty(0.35) historical(0.29) form(0.18) [frailty: no data] [tactical: no data] gc_relevance(0.06)
 Field: 154 riders | Temperature: 8.24 | Edge threshold: 50bps
 
- Rank  Rider                    Spec    Hist    ModelProb  BkOdds  Edge(bps)  Kelly%
-    1  Biniam Girmay            0.82    0.91       18.4%     5.0      +1383     4.2%
-    2  Phil Bauhaus             0.98    0.00*        8.7%    50.0      +669     2.1%
-    3  Axel Zingle              0.74    0.78*       11.2%    10.0      +120     0.3%
+ Rank  Rider                    Spec    Hist    Form  ModelProb  BkOdds  Edge(bps)  Kelly%
+    1  Biniam Girmay            0.82    0.91    0.88     18.4%     5.0      +1383     4.2%
+    2  Phil Bauhaus             0.98    0.00*  None*      8.7%    50.0       +669     2.1%
+    3  Axel Zingle              0.74    0.78*   0.54     11.2%    10.0       +120     0.3%
    ...
 
 * no race history (median used)
+* no results in last 90 days
+```
+
+For a mountain stage with an uphill finish:
+
+```
+Paris-Nice 2026 Stage 5 — MOUNTAIN/UPHILL FINISH (142.0km)
 ```
 
 The **Signals** line shows effective weights after renormalisation for the active signals only (frailty and tactical are marked `no data` when their tables are empty). The weights shown always sum to 1.0.
@@ -343,6 +381,9 @@ The model never fails on missing data — it degrades gracefully:
 | Race has no historical results in this stage type | all historical signals = `None`; signal inactive for all riders |
 | `rider_frailty` table is empty | all frailty signals = `None`; signal inactive |
 | Stage 1 or `tactical_states` empty | all tactical signals = `None`; signal inactive |
+| Rider has no results in last 90 days | form signal = `None`; shown as `None*` in table |
+| No `race_climbs` data for stage | `is_uphill_finish = False`; unblended specialty used |
+| Rider `weight_kg` unknown | power-to-weight factor = 1.0 (no adjustment) |
 | Rider not matched in `bookmaker_odds_latest` | `back_odds = None`; edge and Kelly not shown |
 | All signals `None` for a rider | `raw_score = 0.0`; rider contributes uniformly to softmax |
 
