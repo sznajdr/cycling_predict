@@ -559,7 +559,7 @@ Written via `UPDATE race_stages SET ... WHERE pcs_stage_url = ?` using
 | length_km | `length` | km |
 | steepness_pct | `steepness` | average % gradient |
 | top_m | `top` | altitude at summit in metres |
-| km_before_finish | `km_before_finnish` | note PCS typo in source |
+| km_before_finish | `km_before_finnish` | **Stage-relative** km from stage finish; must be transformed to race-relative using stage distances |
 
 **What it writes:**
 - Upserts into `race_climbs`, one row per named climb

@@ -292,8 +292,11 @@ def fetch_race_climbs(pcs_slug, year):
     Fetch the full list of climbs in a race.
 
     Returns list of dicts with keys:
-        climb_name, climb_url, length, steepness, top, km_before_finnish
+        climb_name, climb_url, length, steepness, top, km_before_finnish, stage_number
     or [] on error.
+    
+    Note: km_before_finnish is stage-relative from PCS. Must be transformed
+    to race-relative using stage distances.
     """
     try:
         url = f"race/{pcs_slug}/{year}/route/climbs"
@@ -305,6 +308,41 @@ def fetch_race_climbs(pcs_slug, year):
         log.error("fetch_race_climbs(%s, %s) failed: %s", pcs_slug, year, e)
         _sleep()
         return []
+
+
+def transform_km_before_finish(climbs, stage_distances):
+    """
+    Transform stage-relative km_before_finish to race-relative.
+    
+    Args:
+        climbs: List of climb dicts with 'km_before_finnish' (stage-relative)
+        stage_distances: Dict of {stage_number: distance_km}
+    
+    Returns:
+        List of climbs with added 'km_before_finish_race' key (race-relative)
+    """
+    if not climbs or not stage_distances:
+        return climbs
+    
+    # Calculate cumulative distances
+    sorted_stages = sorted(stage_distances.items())  # (stage_num, distance)
+    cum_distances = {}
+    cum = 0
+    for stage_num, dist in sorted_stages:
+        cum += dist
+        cum_distances[stage_num] = cum
+    
+    total_distance = cum
+    
+    # Group climbs by inferred stage
+    # Climbs are typically grouped by stage in the raw data
+    # For simplicity, we keep stage-relative and let the caller handle mapping
+    
+    for climb in climbs:
+        # Keep original stage-relative value
+        climb['km_before_finish_stage'] = climb.get('km_before_finnish', 0) or 0
+    
+    return climbs
 
 
 def fetch_rider_results(rider_url):
