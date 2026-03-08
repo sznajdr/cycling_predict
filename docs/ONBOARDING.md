@@ -96,8 +96,8 @@ parent_folder/
 git clone https://github.com/ramonvermeulen/procyclingstats.git ../procyclingstats
 pip install -e ../procyclingstats
 pip install -r requirements.txt
-python fetch_odds.py --init-schema
-python quickstart.py
+python scripts/fetch_odds.py --init-schema
+python scripts/quickstart.py
 ```
 
 `quickstart.py` succeeding confirms the environment is functional. For full setup automation: `python scripts/setup_team.py`.
@@ -152,7 +152,7 @@ races:
 
 ```bash
 python -m pipeline.runner
-python monitor.py          # watch progress in a second terminal
+python scripts/monitor.py          # watch progress in a second terminal
 ```
 
 One race with 4 years of history: 20–60 minutes. A grand tour with 5 years: 4–6 hours. Full schema and job-type reference: [`docs/SCRAPE.md`](docs/SCRAPE.md).
@@ -160,10 +160,10 @@ One race with 4 years of history: 20–60 minutes. A grand tour with 5 years: 4�
 **Rank a specific stage:**
 
 ```bash
-python rank_stage.py paris-nice 2026 1
-python rank_stage.py paris-nice 2026 1 --run-models   # fit frailty + tactical first
-python rank_stage.py paris-nice 2026 3 --top 20       # top 20 only
-python rank_stage.py paris-nice 2026 1 --save         # persist to strategy_outputs
+python scripts/rank_stage.py paris-nice 2026 1
+python scripts/rank_stage.py paris-nice 2026 1 --run-models   # fit frailty + tactical first
+python scripts/rank_stage.py paris-nice 2026 3 --top 20       # top 20 only
+python scripts/rank_stage.py paris-nice 2026 1 --save         # persist to strategy_outputs
 ```
 
 `rank_stage.py` combines up to six pre-race signals (specialty with finish-type blending, cross-race recent form, historical, frailty, tactical, GC relevance) into a probability distribution over the startlist. Uphill finish detection (via `race_climbs` cumulative distance mapping) adjusts specialty column blending and applies a power-to-weight factor for mountain stages. It then joins live Betclic odds from `bookmaker_odds_latest`, computes edge in basis points, and sizes stakes via half-Kelly. Signals for which no data is available are omitted; the remaining weights are renormalized automatically.
@@ -173,7 +173,7 @@ Full signal documentation and output format: [`docs/RANKING.md`](docs/RANKING.md
 **Fit models and generate signals (multi-strategy workflow):**
 
 ```bash
-python example_betting_workflow.py
+python scripts/example_betting_workflow.py
 ```
 
 Fits Strategies 1 and 2 on your scraped data, queries `bookmaker_odds_latest` for live odds (falls back to simulated fair-market odds if none), runs the Kelly optimizer, and prints recommended positions.
@@ -190,8 +190,8 @@ Rider B             0.062        0.031         310          1.5%
 **Run the backtest:**
 
 ```bash
-python run_backtest.py
-python run_backtest.py --strategy frailty --kelly 0.1 --save-bets bets.csv
+python scripts/run_backtest.py
+python scripts/run_backtest.py --strategy frailty --kelly 0.1 --save-bets bets.csv
 ```
 
 Walk-forward: train on all races before R, predict R, record outcome, advance. No lookahead.
@@ -322,7 +322,7 @@ Log every override: reason, timestamp, expected vs. actual outcome. Review month
 | `docs/ENGINE.md` | Implementation logic, data inputs/outputs, acceptance criteria for all 15 strategies |
 | `docs/MODELS.md` | Mathematical specifications — equations, priors, dependency chain |
 | `docs/RANKING.md` | Stage ranking model — six signals, finish-type blending, weight matrix, softmax calibration, CLI usage |
-| `COMMANDS.md` | Complete CLI, SQL, scheduling, monitoring reference |
+| `docs/COMMANDS.md` | Complete CLI, SQL, scheduling, monitoring reference |
 | `docs/ODDS.md` | Betclic scraper walkthrough — market types, H2H handling, name matching |
 | `docs/SCRAPE.md` | Scraping pipeline — schema, job types, execution flow |
 | `genqirue/models/base.py` | Abstract base class — required interface for all strategies |

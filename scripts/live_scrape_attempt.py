@@ -8,9 +8,11 @@ Tries different approaches to get live race data:
 3. Fallback to manual link
 
 Usage:
-    python live_scrape_attempt.py paris-nice 2026 1
+    python scripts/live_scrape_attempt.py paris-nice 2026 1
 """
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import time
 from datetime import datetime
 

@@ -37,7 +37,7 @@ pip install -e ../procyclingstats
 pip install -r requirements.txt
 
 # Apply database schema (creates data/cycling.db if it doesn't exist)
-python fetch_odds.py --init-schema
+python scripts/fetch_odds.py --init-schema
 ```
 
 ### Automated setup (new team member)
@@ -59,7 +59,7 @@ python tests/test_rider.py
 python tests/test_race.py
 
 # Quick end-to-end demo (requires scraped data)
-python quickstart.py
+python scripts/quickstart.py
 ```
 
 ### Virtual environment (optional but recommended)
@@ -93,7 +93,7 @@ Reads `config/races.yaml`, seeds the job queue for all configured races, and pro
 ### Monitor progress in a second terminal
 
 ```bash
-python monitor.py
+python scripts/monitor.py
 ```
 
 Prints a live queue status table (pending/in_progress/completed per job type) and row counts for all core tables.
@@ -145,7 +145,7 @@ print(f'Reset {n} permanent_fail jobs to pending')
 Run this once if upgrading from an older schema that lacked stage enrichment fields:
 
 ```bash
-python reset_stage_jobs.py
+python scripts/reset_stage_jobs.py
 python -m pipeline.runner
 ```
 
@@ -156,7 +156,7 @@ python -m pipeline.runner
 ### Apply odds schema (first time only)
 
 ```bash
-python fetch_odds.py --init-schema
+python scripts/fetch_odds.py --init-schema
 ```
 
 Creates the `bookmaker_odds` table, `bookmaker_odds_latest` view, and indexes. Idempotent — safe to run repeatedly.
@@ -164,7 +164,7 @@ Creates the `bookmaker_odds` table, `bookmaker_odds_latest` view, and indexes. I
 ### Dry-run a single event (no DB writes)
 
 ```bash
-python fetch_odds.py --dry-run --event-url <betclic-event-url>
+python scripts/fetch_odds.py --dry-run --event-url <betclic-event-url>
 ```
 
 Prints a table of all selections with raw odds, hold-adjusted fair odds, and market overround. No data is written. Use this to verify a URL works before running a full scrape.
@@ -172,7 +172,7 @@ Prints a table of all selections with raw odds, hold-adjusted fair odds, and mar
 ### Dry-run the full hub (no DB writes)
 
 ```bash
-python fetch_odds.py --dry-run
+python scripts/fetch_odds.py --dry-run
 ```
 
 Discovers all live cycling events on the Betclic hub and prints every selection. No data is written.
@@ -180,7 +180,7 @@ Discovers all live cycling events on the Betclic hub and prints every selection.
 ### Full hub scrape (writes to DB)
 
 ```bash
-python fetch_odds.py
+python scripts/fetch_odds.py
 ```
 
 Discovers all live events, extracts odds, and inserts rows into `bookmaker_odds`. Each run gets a UUID `scrape_run_id`. The `bookmaker_odds_latest` view always reflects the most recent snapshot per selection.
@@ -188,13 +188,13 @@ Discovers all live events, extracts odds, and inserts rows into `bookmaker_odds`
 ### Scrape a single event (writes to DB)
 
 ```bash
-python fetch_odds.py --event-url <betclic-event-url>
+python scripts/fetch_odds.py --event-url <betclic-event-url>
 ```
 
 ### Use a custom DB path
 
 ```bash
-python fetch_odds.py --db path/to/custom.db
+python scripts/fetch_odds.py --db path/to/custom.db
 ```
 
 ---
@@ -212,7 +212,7 @@ Loads Paris-Nice 2024 data (or whatever is in the DB), fits the frailty and tact
 ### Full stage analysis with portfolio optimization
 
 ```bash
-python example_betting_workflow.py
+python scripts/example_betting_workflow.py
 ```
 
 Fits Strategies 1 and 2, generates positions for all riders with signals above threshold, runs the Robust Kelly optimizer, and prints recommended stakes with edge estimates. Uses real Betclic odds from `bookmaker_odds_latest` where available; falls back to simulated odds otherwise.
@@ -235,10 +235,10 @@ Full documentation: [`docs/RANKING.md`](docs/RANKING.md).
 
 ```bash
 # Rank all riders for Stage 1
-python rank_stage.py paris-nice 2026 1
+python scripts/rank_stage.py paris-nice 2026 1
 
 # Show only top 20
-python rank_stage.py paris-nice 2026 3 --top 20
+python scripts/rank_stage.py paris-nice 2026 3 --top 20
 
 # Custom DB path
 python rank_stage.py paris-nice 2026 1 --db path/to/custom.db
@@ -247,7 +247,7 @@ python rank_stage.py paris-nice 2026 1 --db path/to/custom.db
 ### Fit frailty + tactical models before ranking
 
 ```bash
-python rank_stage.py paris-nice 2026 1 --run-models
+python scripts/rank_stage.py paris-nice 2026 1 --run-models
 ```
 
 Loads all historical years from the DB, fits `FastFrailtyEstimator` and `SimpleTacticalDetector`, writes results to `rider_frailty` and `tactical_states`, then ranks. Use this once per race before the first stage to populate the model tables.
@@ -255,7 +255,7 @@ Loads all historical years from the DB, fits `FastFrailtyEstimator` and `SimpleT
 ### Persist ranking to the database
 
 ```bash
-python rank_stage.py paris-nice 2026 1 --save
+python scripts/rank_stage.py paris-nice 2026 1 --save
 ```
 
 Inserts one row per rider into `strategy_outputs`. Query with:
@@ -276,7 +276,7 @@ ORDER BY CAST(rank_position AS INTEGER);
 ### Combined: models + rank + save
 
 ```bash
-python rank_stage.py paris-nice 2026 1 --run-models --save
+python scripts/rank_stage.py paris-nice 2026 1 --run-models --save
 ```
 
 ### Inspect model table state
@@ -315,20 +315,20 @@ Strategy 6 implementation - analyzes wind conditions for Individual Time Trials 
 
 ```bash
 # Auto-fetch from free providers (Open-Meteo/MET Norway/NOAA)
-python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
+python scripts/weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
 
 # European race (uses MET Norway - very accurate)
-python weather_race_analyzer.py --race paris-nice --year 2026 --stage 1
+python scripts/weather_race_analyzer.py --race paris-nice --year 2026 --stage 1
 
 # Specify course bearing (0=North, 90=East, 180=South, 270=West)
-python weather_race_analyzer.py --race tour-de-france --year 2025 --stage 21 --bearing 180
+python scripts/weather_race_analyzer.py --race tour-de-france --year 2025 --stage 21 --bearing 180
 ```
 
 ### Manual Forecast Entry (No Internet)
 
 ```bash
 # Enter forecast manually - perfect for race day updates
-python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1 \
+python scripts/weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1 \
     --manual "14:00:5.2@180,15:00:6.8@200,16:00:4.1@220"
 
 # Format: HH:MM:windspeed@direction
@@ -364,28 +364,28 @@ All providers are completely free with no registration required.
 ### Run full walk-forward backtest (all strategies)
 
 ```bash
-python run_backtest.py
+python scripts/run_backtest.py
 ```
 
 ### Options
 
 ```bash
-python run_backtest.py --strategy frailty     # frailty only
+python scripts/run_backtest.py --strategy frailty     # frailty only
 python run_backtest.py --strategy tactical    # tactical HMM only
 python run_backtest.py --strategy baseline    # random baseline
 python run_backtest.py --strategy all         # all (default)
 
-python run_backtest.py --kelly 0.25           # Kelly fraction (default: 0.25)
+python scripts/run_backtest.py --kelly 0.25           # Kelly fraction (default: 0.25)
 python run_backtest.py --top-k 3              # Riders to bet per stage (default: 3)
 python run_backtest.py --no-top3              # Win market instead of podium market
 python run_backtest.py --bankroll 5000        # Starting bankroll (default: 1000)
-python run_backtest.py --save-bets bets.csv   # Export every bet to CSV
+python scripts/run_backtest.py --save-bets bets.csv   # Export every bet to CSV
 ```
 
 ### Example — conservative frailty run
 
 ```bash
-python run_backtest.py --strategy frailty --kelly 0.1 --top-k 5 --bankroll 10000 --save-bets results.csv
+python scripts/run_backtest.py --strategy frailty --kelly 0.1 --top-k 5 --bankroll 10000 --save-bets results.csv
 ```
 
 ### Interpreting output
@@ -512,7 +512,7 @@ ORDER BY ri.name, s.stage_type;
 ### Apply schema extensions (all betting tables)
 
 ```bash
-python fetch_odds.py --init-schema
+python scripts/fetch_odds.py --init-schema
 ```
 
 Or directly:
@@ -603,7 +603,7 @@ crontab -e
 
 ```bash
 # Every 30 minutes, 06:00–22:00
-*/30 6-22 * * * cd /path/to/cycling-predict && venv/bin/python fetch_odds.py >> logs/odds.log 2>&1
+*/30 6-22 * * * cd /path/to/cycling-predict && venv/bin/python scripts/fetch_odds.py >> logs/odds.log 2>&1
 ```
 
 ### Windows Task Scheduler

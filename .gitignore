@@ -69,3 +69,19 @@ Thumbs.db
 # Generated backtest output
 *.csv
 backtest_results*
+
+# Output directory (keep structure with .gitkeep)
+output/predictions/*
+output/odds/*
+output/backtests/*
+output/reports/*
+!output/predictions/.gitkeep
+!output/odds/.gitkeep
+!output/backtests/.gitkeep
+!output/reports/.gitkeep
+
+# Downloaded HTML race previews (large files)
+data/*.html
+
+# Untracked utility scripts
+scripts/check_specialty.py

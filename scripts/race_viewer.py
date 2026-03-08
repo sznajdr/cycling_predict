@@ -4,15 +4,20 @@ Race Viewer - Works with Local Database
 Shows model predictions and race data without live scraping.
 
 Usage:
-    python race_viewer.py
+    python scripts/race_viewer.py
 """
-import sqlite3
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import sqlite3
 import os
 
 
 def get_db():
-    return sqlite3.connect('data/cycling.db')
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    DB_PATH = PROJECT_ROOT / 'data' / 'cycling.db'
+    return sqlite3.connect(DB_PATH)
 
 
 def show_races():

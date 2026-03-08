@@ -4,18 +4,23 @@ Simple Live Race View - Console Version
 No Streamlit needed - just prints to console.
 
 Usage:
-    python simple_live_view.py
+    python scripts/simple_live_view.py
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import sqlite3
 import requests
 import time
-import sys
 from datetime import datetime
 from bs4 import BeautifulSoup
 
 
 def get_db():
-    return sqlite3.connect('data/cycling.db')
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    DB_PATH = PROJECT_ROOT / 'data' / 'cycling.db'
+    return sqlite3.connect(DB_PATH)
 
 
 def show_race_picker():

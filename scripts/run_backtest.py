@@ -4,19 +4,23 @@ CLI entry point for the walk-forward backtester.
 Usage
 -----
 # Run all strategies (recommended):
-python run_backtest.py
+python scripts/run_backtest.py
 
 # Run a single strategy:
-python run_backtest.py --strategy frailty
-python run_backtest.py --strategy tactical
-python run_backtest.py --strategy baseline
+python scripts/run_backtest.py --strategy frailty
+python scripts/run_backtest.py --strategy tactical
+python scripts/run_backtest.py --strategy baseline
 
 # Customise parameters:
-python run_backtest.py --bankroll 5000 --kelly 0.25 --top-k 3 --no-top3
+python scripts/run_backtest.py --bankroll 5000 --kelly 0.25 --top-k 3 --no-top3
 
 # Save detailed CSV of every bet:
-python run_backtest.py --save-bets bets.csv
+python scripts/run_backtest.py --save-bets bets.csv
 """
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import argparse
 import csv

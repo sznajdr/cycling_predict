@@ -783,7 +783,7 @@ portfolio = optimizer.optimize_portfolio(positions, team_assignments)
 
 ## 6. Database Schema
 
-The betting engine extends `cycling.db` with the following tables (applied via `python fetch_odds.py --init-schema`):
+The betting engine extends `cycling.db` with the following tables (applied via `python scripts/fetch_odds.py --init-schema`):
 
 | Table | Purpose | Written by |
 |-------|---------|------------|

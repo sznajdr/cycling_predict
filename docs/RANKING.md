@@ -32,7 +32,7 @@ The individual strategies (frailty, tactical HMM) each produce a signal for one 
 Previously the only way to get a pre-race view was a raw SQL join of specialty scores to market odds. This model makes that workflow a one-liner:
 
 ```bash
-python rank_stage.py paris-nice 2026 1
+python scripts/rank_stage.py paris-nice 2026 1
 ```
 
 ---
@@ -237,29 +237,29 @@ Half-Kelly (rather than full) is the default because model miscalibration is alm
 ## 7. CLI Usage
 
 ```bash
-python rank_stage.py <race-slug> <year> <stage-number> [options]
+python scripts/rank_stage.py <race-slug> <year> <stage-number> [options]
 ```
 
 ### Examples
 
 ```bash
 # Rank all riders for Paris-Nice 2026 Stage 1
-python rank_stage.py paris-nice 2026 1
+python scripts/rank_stage.py paris-nice 2026 1
 
 # Top 20 only
-python rank_stage.py paris-nice 2026 3 --top 20
+python scripts/rank_stage.py paris-nice 2026 3 --top 20
 
 # Fit frailty + tactical models from historical data, then rank
-python rank_stage.py paris-nice 2026 1 --run-models
+python scripts/rank_stage.py paris-nice 2026 1 --run-models
 
 # Persist ranking to strategy_outputs table
-python rank_stage.py paris-nice 2026 1 --save
+python scripts/rank_stage.py paris-nice 2026 1 --save
 
 # Combine all flags
-python rank_stage.py paris-nice 2026 1 --run-models --top 30 --save
+python scripts/rank_stage.py paris-nice 2026 1 --run-models --top 30 --save
 
 # Use a different DB
-python rank_stage.py paris-nice 2026 1 --db /path/to/custom.db
+python scripts/rank_stage.py paris-nice 2026 1 --db /path/to/custom.db
 ```
 
 ### Sample output
@@ -453,7 +453,7 @@ Note: as of the current build, `seed_queue()` automatically seeds `config['year'
 The `rider_frailty` or `tactical_states` tables are empty. Run with `--run-models` to populate them:
 
 ```bash
-python rank_stage.py paris-nice 2026 1 --run-models
+python scripts/rank_stage.py paris-nice 2026 1 --run-models
 ```
 
 If `--run-models` prints "Insufficient records — skipping", there isn't enough historical data in the DB to fit the models. Scrape more years first.

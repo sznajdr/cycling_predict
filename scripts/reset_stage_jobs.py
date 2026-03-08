@@ -8,6 +8,10 @@ support. This script:
 
 Run ONCE, then re-run: python -m pipeline.runner
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from pipeline.db import get_connection, init_db
 
 conn = get_connection()

@@ -6,7 +6,7 @@ This script demonstrates the complete workflow in one command.
 Run this after scraping data to see the betting models in action.
 
 Usage:
-    python quickstart.py
+    python scripts/quickstart.py
 
 What it does:
 1. Checks your database
@@ -15,6 +15,10 @@ What it does:
 4. Analyzes the latest stage
 5. Shows top betting signals
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import sqlite3
 import sys
 from datetime import datetime
@@ -28,8 +32,10 @@ from genqirue.domain import StageType
 
 def check_database():
     """Check if database exists and has data."""
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    DB_PATH = PROJECT_ROOT / 'data' / 'cycling.db'
     try:
-        conn = sqlite3.connect('data/cycling.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
         # Count key tables

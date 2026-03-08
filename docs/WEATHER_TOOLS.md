@@ -21,14 +21,14 @@ Fast wind analysis for ITT stages. Fetches forecasts, maps against start times, 
 ```bash
 # Basic analysis (requires OPENWEATHER_API_KEY env var)
 export OPENWEATHER_API_KEY="your_key_here"
-python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
+python scripts/weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
 
 # With explicit API key
-python weather_race_analyzer.py --race paris-nice --year 2026 --stage 1 \
+python scripts/weather_race_analyzer.py --race paris-nice --year 2026 --stage 1 \
     --api-key YOUR_KEY_HERE
 
 # Specify course bearing (0=North, 90=East, 180=South, 270=West)
-python weather_race_analyzer.py --race tour-de-france --year 2025 --stage 21 \
+python scripts/weather_race_analyzer.py --race tour-de-france --year 2025 --stage 21 \
     --bearing 135
 ```
 
@@ -109,13 +109,13 @@ Sophisticated physics engine with power-velocity modeling, air density calculati
 
 ```bash
 # Table output
-python weather_advanced.py --race tirreno-adriatico --year 2026 --stage 1
+python scripts/weather_advanced.py --race tirreno-adriatico --year 2026 --stage 1
 
 # JSON for integration
-python weather_advanced.py --race paris-nice --year 2026 --stage 1 --json
+python scripts/weather_advanced.py --race paris-nice --year 2026 --stage 1 --json
 
 # Export for rank_stage.py integration
-python weather_advanced.py --race tirreno-adriatico --year 2026 --stage 1 \
+python scripts/weather_advanced.py --race tirreno-adriatico --year 2026 --stage 1 \
     --export weather_adjustments.csv
 ```
 
@@ -123,7 +123,7 @@ python weather_advanced.py --race tirreno-adriatico --year 2026 --stage 1 \
 
 ```python
 # After running weather analysis
-python weather_advanced.py --race tirreno-adriatico --year 2026 --stage 1 \
+python scripts/weather_advanced.py --race tirreno-adriatico --year 2026 --stage 1 \
     --export weather_multipliers.csv
 
 # Then adjust rank_stage.py to load these multipliers
@@ -336,7 +336,7 @@ python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
 
 ```bash
 # Longer TT = more weather impact
-python weather_advanced.py --race tour-de-france --year 2025 --stage 21 \
+python scripts/weather_advanced.py --race tour-de-france --year 2025 --stage 21 \
     --export tdf_weather.csv
 
 # High impact expected due to:

@@ -138,7 +138,7 @@ python rank_stage.py paris-nice 2026 1 --run-models --save
 python fetch_odds.py
 
 # 3. View your value bets
-python race_viewer.py
+python scripts/race_viewer.py
 ```
 
 ### Live Race (Manual)
@@ -214,7 +214,7 @@ Use indirect signals:
 **Your system is working correctly.** The limitation is by design from PCS, not a bug in your code.
 
 **For today:**
-1. Run `python race_viewer.py` to see your predictions
+1. Run `python scripts/race_viewer.py` to see your predictions
 2. Open PCS in browser manually
 3. Use your model + odds to find value
 4. Place bets based on pre-race analysis

@@ -12,7 +12,7 @@ cd path\to\cycling_predict
 ### Step 2: Launch Dashboard
 
 ```powershell
-streamlit run live_race_dashboard.py
+streamlit run scripts/live_race_dashboard.py
 ```
 
 This will:
@@ -94,17 +94,17 @@ Then refresh the dashboard!
 
 ### Option 1: Double-click launcher
 ```
-LAUNCH_LIVE_DASHBOARD.bat
+scripts/LAUNCH_LIVE_DASHBOARD.bat
 ```
 
 ### Option 2: Run simple version
 ```powershell
-python simple_live_view.py
+python scripts/simple_live_view.py
 ```
 
 ### Option 3: Use existing analysis
 ```powershell
-python analyze_stage1_pn2026.py
+python scripts/analyze_stage1_pn2026.py
 ```
 
 ---
@@ -135,7 +135,7 @@ python analyze_stage1_pn2026.py
 
 ```powershell
 # Launch dashboard
-streamlit run live_race_dashboard.py
+streamlit run scripts/live_race_dashboard.py
 
 # Run model analysis (do this first!)
 python rank_stage.py paris-nice 2026 1 --run-models
@@ -144,14 +144,14 @@ python rank_stage.py paris-nice 2026 1 --run-models
 python fetch_odds.py
 
 # Quick analysis
-python analyze_stage1_pn2026.py
+python scripts/analyze_stage1_pn2026.py
 ```
 
 ---
 
 ## 🎯 Your Action Plan (Next 30 Minutes)
 
-1. **[NOW]** Launch dashboard: `streamlit run live_race_dashboard.py`
+1. **[NOW]** Launch dashboard: `streamlit run scripts/live_race_dashboard.py`
 2. **[NOW]** Run models: `python rank_stage.py paris-nice 2026 1 --run-models`
 3. **[T-15min]** Fetch odds: `python fetch_odds.py`
 4. **[T-0]** Race starts! Watch dashboard for live updates
@@ -189,7 +189,7 @@ python rank_stage.py paris-nice 2026 1 --run-models --save
 
 ### Page won't load
 - Check firewall isn't blocking port 8501
-- Try: `streamlit run live_race_dashboard.py --server.port 8502`
+- Try: `streamlit run scripts/live_race_dashboard.py --server.port 8502`
 
 ---
 

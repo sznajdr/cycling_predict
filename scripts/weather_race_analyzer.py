@@ -19,9 +19,12 @@ Environment:
     (Get free key at: https://openweathermap.org/api)
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import os
-import sys
 import sqlite3
 import json
 import math
@@ -32,8 +35,6 @@ from collections import defaultdict
 import requests
 import time
 
-# Add parent dir for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pipeline.db import get_connection
 from weather_free_providers import FreeWeatherClient, parse_manual_forecast
 

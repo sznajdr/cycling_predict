@@ -2,12 +2,16 @@
 CLI entry point for scraping Betclic cycling odds.
 
 Usage:
-    python fetch_odds.py                     # scrape all events from hub
-    python fetch_odds.py --init-schema       # apply bookmaker_odds schema only
-    python fetch_odds.py --event-url URL     # scrape single event
-    python fetch_odds.py --dry-run           # print results, don't write to DB
-    python fetch_odds.py --dry-run --event-url URL
+    python scripts/fetch_odds.py             # scrape all events from hub
+    python scripts/fetch_odds.py --init-schema   # apply bookmaker_odds schema only
+    python scripts/fetch_odds.py --event-url URL # scrape single event
+    python scripts/fetch_odds.py --dry-run       # print results, don't write to DB
+    python scripts/fetch_odds.py --dry-run --event-url URL
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import logging
 import sys

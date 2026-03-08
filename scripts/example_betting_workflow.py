@@ -8,6 +8,10 @@ This demonstrates how to:
 4. Optimize portfolio with Kelly criterion
 5. Generate betting recommendations
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import sqlite3
 import numpy as np
 import pandas as pd
@@ -230,7 +234,8 @@ def get_upcoming_stage_startlist(
     return df.to_dict('records')
 
 
-DB_PATH = 'data/cycling.db'
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DB_PATH = PROJECT_ROOT / 'data' / 'cycling.db'
 
 
 def _lookup_real_odds(rider_id: int, market_type: str, db_path=DB_PATH) -> float | None:

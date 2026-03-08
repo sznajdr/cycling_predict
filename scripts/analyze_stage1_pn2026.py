@@ -5,8 +5,12 @@ Stage 1 Paris-Nice 2026 - Quick Value Bet Finder
 Run this script to get value bet recommendations for today's stage.
 
 Usage:
-    python analyze_stage1_pn2026.py
+    python scripts/analyze_stage1_pn2026.py
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import sqlite3
 import sys
 from datetime import datetime
@@ -25,7 +29,9 @@ except ImportError as e:
 
 def check_database():
     """Check if Paris-Nice 2026 data exists."""
-    conn = sqlite3.connect('data/cycling.db')
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    DB_PATH = PROJECT_ROOT / 'data' / 'cycling.db'
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     print("="*60)

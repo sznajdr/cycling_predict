@@ -2,11 +2,15 @@
 Pre-race stage ranking CLI.
 
 Usage:
-    python rank_stage.py paris-nice 2026 1
-    python rank_stage.py paris-nice 2026 3 --top 20
-    python rank_stage.py paris-nice 2026 1 --run-models
-    python rank_stage.py paris-nice 2026 1 --save
+    python scripts/rank_stage.py paris-nice 2026 1
+    python scripts/rank_stage.py paris-nice 2026 3 --top 20
+    python scripts/rank_stage.py paris-nice 2026 1 --run-models
+    python scripts/rank_stage.py paris-nice 2026 1 --save
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import logging
 import sqlite3
@@ -39,7 +43,7 @@ _STATE_PROBS = {
 # ---------------------------------------------------------------------------
 
 def _run_models(conn: sqlite3.Connection, race_slug: str, year: int) -> None:
-    from example_betting_workflow import load_survival_data_from_db, load_tactical_data_from_db
+    from scripts.example_betting_workflow import load_survival_data_from_db, load_tactical_data_from_db
     from genqirue.models import FastFrailtyEstimator, SimpleTacticalDetector
 
     hist_years = [

@@ -1,7 +1,11 @@
-import sqlite3
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-db = Path(__file__).parent / "data" / "cycling.db"
+import sqlite3
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+db = PROJECT_ROOT / "data" / "cycling.db"
 if not db.exists():
     print("cycling.db not found — has the runner started yet?")
     raise SystemExit

@@ -30,7 +30,7 @@ Three stages run sequentially. Each stage's output is the next stage's input.
 
 **Stage 3 — Validation.** `backtesting/engine.py` replays history in strict chronological order — train on t<T, predict T, observe outcome, advance T. The backtest produces a bet-by-bet P&L ledger. There is no lookahead at any point.
 
-**Stage 4 — Live pricing.** `fetch_odds.py` scrapes Betclic's HTML for current cycling markets. Scraped odds feed into Stage 2's edge calculation: `edge = model_prob - (1 / market_odds)`. Without live odds, the workflow uses simulated fair-market prices.
+**Stage 4 — Live pricing.** `scripts/fetch_odds.py` scrapes Betclic's HTML for current cycling markets. Scraped odds feed into Stage 2's edge calculation: `edge = model_prob - (1 / market_odds)`. Without live odds, the workflow uses simulated fair-market prices.
 
 ---
 
@@ -256,6 +256,63 @@ Three strategies tested:
 ```
 cycling_predict/
 |
+|-- .github/                    # GitHub Actions workflows
+|   `-- workflows/
+|       |-- scrape.yml          # Daily automated scraping
+|       `-- tests.yml           # CI test runner
+|
+|-- backtesting/                # Walk-forward backtesting engine
+|   |-- engine.py               # Core backtester implementation
+|   `-- __init__.py
+|
+|-- config/                     # Configuration files
+|   `-- races.yaml              # Which races and years to scrape
+|
+|-- data/                       # Database and downloaded files
+|   |-- cycling.db              # SQLite database (created by scraper, not in git)
+|   `-- *.html                  # Downloaded race preview pages
+|
+|-- docs/                       # Documentation
+|   |-- COMMANDS.md             # Complete CLI and SQL reference
+|   |-- DEPLOYMENT.md           # Production: Docker, cron, PostgreSQL, monitoring
+|   |-- ENGINE.md               # Implementation guide — data flow, acceptance criteria
+|   |-- EXAMPLE_TIRRENO.md      # Tirreno-Adriatico worked example
+|   |-- LIVE_DATA_EXPLANATION.md# Live data and dashboard guide
+|   |-- MODELS.md               # Mathematical specification — all 15 strategies
+|   |-- ODDS.md                 # Betclic scraper — walkthrough and troubleshooting
+|   |-- ONBOARDING.md           # New team member guide
+|   |-- QUICK_START_LIVE.md     # Quick start for live race tracking
+|   |-- RANKING.md              # Stage ranking model — signals, weights, CLI usage
+|   |-- SCRAPE.md               # Scraping pipeline — schema, job types, execution flow
+|   |-- STAGE1_PARIS_NICE_2026_PLAN.md  # Race-specific analysis plan
+|   `-- WEATHER_TOOLS.md        # Weather analysis documentation
+|
+|-- genqirue/                   # Bayesian betting engine
+|   |-- data/
+|   |   `-- schema_extensions.sql  # Betting tables on top of the scraping schema
+|   |-- domain/
+|   |   |-- entities.py         # RiderState, MarketState, Position, Portfolio
+|   |   `-- enums.py            # StageType, TacticalState, MarketType
+|   |-- inference/              # Real-time inference (to implement)
+|   |-- models/
+|   |   |-- base.py             # Abstract base classes
+|   |   |-- gruppetto_frailty.py   # Strategy 2: Cox PH + frailty
+|   |   |-- online_changepoint.py  # Strategy 12: BOCPD
+|   |   |-- stage_ranker.py        # Pre-race ranking: 6 signals → softmax → Kelly
+|   |   |-- tactical_hmm.py        # Strategy 1: HMM
+|   |   `-- weather_spde.py        # Strategy 6: GP/SPDE for ITTs
+|   `-- portfolio/
+|       `-- kelly.py            # Robust Kelly + CVaR optimiser
+|
+|-- logs/                       # Log files (not in git)
+|   `-- pipeline.log
+|
+|-- output/                     # Generated artifacts (kept with .gitkeep)
+|   |-- backtests/              # Backtest results, bet ledgers
+|   |-- odds/                   # Odds snapshots, fair odds CSVs
+|   |-- predictions/            # Model probability CSVs, rankings
+|   `-- reports/                # Weather analysis output, workflow summaries
+|
 |-- pipeline/                   # Data collection
 |   |-- runner.py               # Entry point: scrape PCS data
 |   |-- fetcher.py              # HTTP requests, rate limiting
@@ -264,60 +321,40 @@ cycling_predict/
 |   |-- betclic_scraper.py      # Betclic odds scraper
 |   `-- queue.py                # Persistent job queue (resume-safe)
 |
-|-- genqirue/                   # Betting engine
-|   |-- models/
-|   |   |-- base.py             # Abstract base classes
-|   |   |-- gruppetto_frailty.py   # Strategy 2: Cox PH + frailty
-|   |   |-- tactical_hmm.py        # Strategy 1: HMM
-|   |   |-- weather_spde.py        # Strategy 6: GP/SPDE for ITTs
-|   |   |-- online_changepoint.py  # Strategy 12: BOCPD
-|   |   `-- stage_ranker.py        # Pre-race ranking: 6 signals → softmax → Kelly
-|   |-- portfolio/
-|   |   `-- kelly.py            # Robust Kelly + CVaR optimiser
-|   |-- domain/
-|   |   |-- entities.py         # RiderState, MarketState, Position, Portfolio
-|   |   `-- enums.py            # StageType, TacticalState, MarketType
-|   `-- data/
-|       `-- schema_extensions.sql  # Betting tables on top of the scraping schema
+|-- scripts/                    # CLI tools and utilities
+|   |-- analyze_stage1_pn2026.py   # Stage 1 Paris-Nice value finder
+|   |-- check_specialty.py         # Debug: check rider specialty scores
+|   |-- example_betting_workflow.py# End-to-end worked example
+|   |-- export_race_data.py        # Export/import race data for sharing
+|   |-- fetch_odds.py              # Betclic odds CLI
+|   |-- LAUNCH_LIVE_DASHBOARD.bat  # Windows: launch Streamlit dashboard
+|   |-- live_race_dashboard.py     # Streamlit live race dashboard
+|   |-- live_scrape_attempt.py     # Try multiple live scraping methods
+|   |-- monitor.py                 # Watch scraping progress
+|   |-- quickstart.py              # Quick demo (no scraped data required)
+|   |-- race_viewer.py             # Browse races in local database
+|   |-- rank_stage.py              # Pre-race stage ranking CLI
+|   |-- reset_stage_jobs.py        # Reset stuck pipeline jobs
+|   |-- run_backtest.py            # Backtest CLI
+|   |-- scrape_2026_season.py      # Scrape 2026 season form data
+|   |-- setup_team.py              # Automated setup for new team members
+|   |-- simple_live_view.py        # Console live race view
+|   |-- weather_advanced.py        # Advanced weather integration
+|   `-- weather_race_analyzer.py   # ITT weather analysis - FREE, no API key
 |
-|-- backtesting/
-|   |-- engine.py               # Walk-forward backtester
-|   `-- __init__.py
-|
-|-- docs/
-|   |-- MODELS.md               # Mathematical specification — all 15 strategies
-|   |-- ENGINE.md               # Implementation guide — data flow, acceptance criteria
-|   |-- RANKING.md              # Stage ranking model — signals, weights, CLI usage
-|   |-- SCRAPE.md               # Scraping pipeline — schema, job types, execution flow
-|   |-- ODDS.md                 # Betclic scraper — walkthrough and troubleshooting
-|   `-- DEPLOYMENT.md           # Production: Docker, cron, PostgreSQL, monitoring
-|
-|-- config/
-|   `-- races.yaml              # Which races and years to scrape
-|
-|-- scripts/
-|   |-- export_race_data.py     # Export / import race data for sharing
-|   `-- setup_team.py           # Automated setup for new team members
-|
-|-- tests/
+|-- tests/                      # Test suite
 |   |-- betting/
 |   |   `-- test_strategies.py  # Unit tests (no network)
 |   |-- test_connection.py      # PCS connectivity check
 |   |-- test_race.py            # Race meta + startlist roundtrip
 |   `-- test_rider.py           # Rider scrape + DB roundtrip
 |
-|-- data/cycling.db             # Created by scraper, not in git
-|-- fetch_odds.py               # Betclic odds CLI
-|-- rank_stage.py               # Pre-race stage ranking CLI
-|-- weather_race_analyzer.py    # ITT weather analysis - FREE, no API key
-|-- weather_free_providers.py   # Free weather providers (Open-Meteo, MET Norway, NOAA)
-|-- run_backtest.py             # Backtest CLI
-|-- example_betting_workflow.py # End-to-end worked example
-|-- quickstart.py               # Quick demo (no scraped data required)
-|-- monitor.py                  # Watch scraping progress
-|-- COMMANDS.md                 # Complete CLI and SQL reference
-|-- WEATHER_TOOLS.md            # Weather analysis documentation
-`-- CONTRIBUTING.md             # Development workflow and standards
+|-- .gitignore                  # Git ignore patterns
+|-- CONTRIBUTING.md             # Development workflow and standards
+|-- README.md                   # This file
+|-- requirements.txt            # Python dependencies
+|-- requirements_streamlit.txt  # Streamlit-specific dependencies
+`-- weather_free_providers.py   # Free weather providers (Open-Meteo, MET Norway, NOAA)
 ```
 
 ---
@@ -339,8 +376,8 @@ Install:
 ```bash
 pip install -e ../procyclingstats
 pip install -r requirements.txt
-python fetch_odds.py --init-schema   # apply all DB schemas
-python quickstart.py                 # verify
+python scripts/fetch_odds.py --init-schema   # apply all DB schemas
+python scripts/quickstart.py                 # verify
 ```
 
 Automated setup for a new team member:
@@ -374,7 +411,7 @@ races:
 
 ```bash
 python -m pipeline.runner
-python monitor.py          # watch progress in a second terminal
+python scripts/monitor.py          # watch progress in a second terminal
 ```
 
 Rate-limited to ~1 req/s. Safe to stop (Ctrl+C) and resume — the queue persists. Each race takes 20–60 minutes depending on history depth. Full schema and job-type reference: [`docs/SCRAPE.md`](docs/SCRAPE.md).
@@ -382,10 +419,10 @@ Rate-limited to ~1 req/s. Safe to stop (Ctrl+C) and resume — the queue persist
 ### Rank a specific stage
 
 ```bash
-python rank_stage.py paris-nice 2026 1
-python rank_stage.py paris-nice 2026 1 --run-models   # fit frailty + tactical first
-python rank_stage.py paris-nice 2026 3 --top 20       # top 20 only
-python rank_stage.py paris-nice 2026 1 --save         # persist ranking to DB
+python scripts/rank_stage.py paris-nice 2026 1
+python scripts/rank_stage.py paris-nice 2026 1 --run-models   # fit frailty + tactical first
+python scripts/rank_stage.py paris-nice 2026 3 --top 20       # top 20 only
+python scripts/rank_stage.py paris-nice 2026 1 --save         # persist ranking to DB
 ```
 
 Combines up to six pre-race signals (specialty scores with finish-type blending, cross-race recent form, historical stage results, frailty estimates, tactical HMM state, GC relevance) into softmax probabilities over the full startlist. Uphill finish detection adjusts specialty blending and applies power-to-weight for mountain stages. Joins live Betclic odds, computes edge in basis points, and sizes stakes via half-Kelly. Signals with no data are excluded; weights renormalize automatically.
@@ -398,19 +435,19 @@ Full documentation: [`docs/RANKING.md`](docs/RANKING.md).
 
 ```bash
 # Auto-fetch from free providers (Open-Meteo/MET Norway/NOAA)
-python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
+python scripts/weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
 
 # Manual entry for race day updates (no internet needed)
-python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1 \
+python scripts/weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1 \
     --manual "14:00:5.2@180,15:00:6.8@200,16:00:4.1@220"
 ```
 
-Outputs time deltas (seconds gained/lost vs neutral conditions), advantage scores per rider, and BACK/FADE recommendations. A 10-30 second wind advantage can be the difference between winning and placing. Full documentation: [`WEATHER_TOOLS.md`](WEATHER_TOOLS.md).
+Outputs time deltas (seconds gained/lost vs neutral conditions), advantage scores per rider, and BACK/FADE recommendations. A 10-30 second wind advantage can be the difference between winning and placing. Full documentation: [`docs/WEATHER_TOOLS.md`](docs/WEATHER_TOOLS.md).
 
 ### Fit models and generate signals (multi-strategy workflow)
 
 ```bash
-python example_betting_workflow.py
+python scripts/example_betting_workflow.py
 ```
 
 Fits the frailty and tactical models on your scraped data, queries live odds from `bookmaker_odds_latest`, and prints a portfolio report with edge estimates and Kelly stakes.
@@ -418,8 +455,8 @@ Fits the frailty and tactical models on your scraped data, queries live odds fro
 ### Run the backtest
 
 ```bash
-python run_backtest.py
-python run_backtest.py --strategy frailty --kelly 0.1 --save-bets bets.csv
+python scripts/run_backtest.py
+python scripts/run_backtest.py --strategy frailty --kelly 0.1 --save-bets bets.csv
 ```
 
 ---
@@ -430,20 +467,20 @@ python run_backtest.py --strategy frailty --kelly 0.1 --save-bets bets.csv
 
 ```bash
 # Apply schema (first time)
-python fetch_odds.py --init-schema
+python scripts/fetch_odds.py --init-schema
 
 # Test a single event without writing to DB
-python fetch_odds.py --dry-run --event-url <betclic-event-url>
+python scripts/fetch_odds.py --dry-run --event-url <betclic-event-url>
 
 # Full hub scrape → DB
-python fetch_odds.py
+python scripts/fetch_odds.py
 ```
 
 Schedule for live coverage:
 
 ```bash
 # Every 30 minutes, 06:00–22:00 (Linux/macOS cron)
-*/30 6-22 * * * cd /path/to/cycling-predict && python fetch_odds.py >> logs/odds.log 2>&1
+*/30 6-22 * * * cd /path/to/cycling-predict && python scripts/fetch_odds.py >> logs/odds.log 2>&1
 ```
 
 Name matching between Betclic selections and the `riders` table uses a two-pass join: exact Unicode match, then accent-stripped ASCII fallback. When no match is found, `example_betting_workflow.py` falls back to simulated fair-market odds.
@@ -472,7 +509,7 @@ baseline        93      4    1.1%   0.0%   -52.0%    596.34   45.3%     0.000
 **Sample size.** With 72 bets, the standard error on the 5.6% top-3 rate is ~2.7%. The frailty edge over the 2% null is 1.3 standard errors — directionally interesting, not conclusive. Target 200+ bets before treating any metric as stable. To get there: scrape 3–4 years across Paris-Nice, Critérium du Dauphiné, Tour de Suisse, and the three grand tours.
 
 ```bash
-python run_backtest.py --save-bets bets.csv
+python scripts/run_backtest.py --save-bets bets.csv
 # then run Spearman test on the exported CSV
 ```
 
@@ -483,35 +520,35 @@ python run_backtest.py --save-bets bets.csv
 ```bash
 # Setup
 pip install -e ../procyclingstats && pip install -r requirements.txt
-python fetch_odds.py --init-schema
+python scripts/fetch_odds.py --init-schema
 
 # Scrape
 python -m pipeline.runner
-python monitor.py
+python scripts/monitor.py
 
 # Odds
-python fetch_odds.py --dry-run --event-url <url>
-python fetch_odds.py --dry-run
-python fetch_odds.py
+python scripts/fetch_odds.py --dry-run --event-url <url>
+python scripts/fetch_odds.py --dry-run
+python scripts/fetch_odds.py
 python -c "import sqlite3; conn = sqlite3.connect('data/cycling.db'); print(conn.execute('SELECT market_type, COUNT(*) FROM bookmaker_odds GROUP BY market_type').fetchall())"
 
 # Stage ranking
-python rank_stage.py paris-nice 2026 1
-python rank_stage.py paris-nice 2026 1 --run-models --save
-python rank_stage.py paris-nice 2026 3 --top 20
+python scripts/rank_stage.py paris-nice 2026 1
+python scripts/rank_stage.py paris-nice 2026 1 --run-models --save
+python scripts/rank_stage.py paris-nice 2026 3 --top 20
 
 # Weather analysis (FREE - no API key)
-python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
-python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1 \
+python scripts/weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
+python scripts/weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1 \
     --manual "14:00:5.2@180,15:00:6.8@200,16:00:4.1@220"
 
 # Models and workflow
-python quickstart.py
-python example_betting_workflow.py
+python scripts/quickstart.py
+python scripts/example_betting_workflow.py
 
 # Backtest
-python run_backtest.py
-python run_backtest.py --strategy frailty --kelly 0.1 --save-bets bets.csv
+python scripts/run_backtest.py
+python scripts/run_backtest.py --strategy frailty --kelly 0.1 --save-bets bets.csv
 
 # Tests
 pytest tests/betting/ -v     # unit tests, no network
@@ -521,7 +558,7 @@ pytest tests/ -v             # all tests
 python -c "import sqlite3; conn = sqlite3.connect('data/cycling.db'); conn.execute(\"UPDATE fetch_queue SET status='pending' WHERE status='in_progress'\"); conn.commit()"
 ```
 
-Complete reference — SQL queries, scheduling, monitoring, git workflow: [`COMMANDS.md`](COMMANDS.md).
+Complete reference — SQL queries, scheduling, monitoring, git workflow: [`docs/COMMANDS.md`](docs/COMMANDS.md).
 
 ---
 
@@ -536,7 +573,7 @@ pip install -e ../procyclingstats
 PCS is rate-limiting. Wait 5–10 minutes; the queue resumes from where it stopped.
 
 **`sqlite3.OperationalError: no such table`**
-- If the missing table is `bookmaker_odds` or `bookmaker_odds_latest`: `python fetch_odds.py --init-schema`
+- If the missing table is `bookmaker_odds` or `bookmaker_odds_latest`: `python scripts/fetch_odds.py --init-schema`
 - Otherwise: no PCS data scraped yet — run `python -m pipeline.runner` first
 
 **Jobs stuck `in_progress`**

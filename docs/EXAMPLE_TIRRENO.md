@@ -90,10 +90,10 @@ Since this is an early-season race, scrape recent 2026 results for Tirreno rider
 
 ```bash
 # Find all 2026 races for Tirreno-Adriatico riders
-python scrape_2026_season.py --race tirreno-adriatico --year 2026
+python scripts/scrape_2026_season.py --race tirreno-adriatico --year 2026
 
 # Optional: Limit to top riders for faster scraping
-python scrape_2026_season.py --race tirreno-adriatico --year 2026 --rider-limit 30
+python scripts/scrape_2026_season.py --race tirreno-adriatico --year 2026 --rider-limit 30
 ```
 
 **This adds races like:**
@@ -322,7 +322,7 @@ python -m pipeline.runner
 python monitor.py
 
 # 3. 2026 season data
-python scrape_2026_season.py --race tirreno-adriatico --year 2026
+python scripts/scrape_2026_season.py --race tirreno-adriatico --year 2026
 
 # 4. Rank Stage 1
 python rank_stage.py tirreno-adriatico 2026 1 --run-models --save

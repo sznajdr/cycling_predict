@@ -4,7 +4,7 @@ Live Race Dashboard - Personal Use
 Streamlit app for live race monitoring and betting alerts.
 
 Usage:
-    streamlit run live_race_dashboard.py
+    streamlit run scripts/live_race_dashboard.py
 
 Features:
 - Race picker from configured races

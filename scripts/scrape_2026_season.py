@@ -8,8 +8,12 @@ For each rider in a target race (e.g., Paris-Nice 2026):
 3. Build up 2026 season form data
 
 Usage:
-    python scrape_2026_season.py --race paris-nice --year 2026
+    python scripts/scrape_2026_season.py --race paris-nice --year 2026
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import sqlite3
 import sys

@@ -903,7 +903,7 @@ Safe at any point. On restart:
 Run in a second terminal while the pipeline is running:
 
 ```bash
-python monitor.py
+python scripts/monitor.py
 ```
 
 Example output mid-run:

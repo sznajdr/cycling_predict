@@ -13,13 +13,16 @@ Features:
 - Outputs adjusted probabilities for rank_stage.py
 
 Usage:
-    python weather_advanced.py --race tirreno-adriatico --year 2026 --stage 1 --export
-    python weather_advanced.py --race paris-nice --year 2026 --stage 1 --plot
+    python scripts/weather_advanced.py --race tirreno-adriatico --year 2026 --stage 1 --export
+    python scripts/weather_advanced.py --race paris-nice --year 2026 --stage 1 --plot
 """
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import argparse
 import os
-import sys
 import sqlite3
 import json
 import math
