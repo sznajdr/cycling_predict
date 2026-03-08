@@ -309,11 +309,14 @@ cycling_predict/
 |-- data/cycling.db             # Created by scraper, not in git
 |-- fetch_odds.py               # Betclic odds CLI
 |-- rank_stage.py               # Pre-race stage ranking CLI
+|-- weather_race_analyzer.py    # ITT weather analysis - FREE, no API key
+|-- weather_free_providers.py   # Free weather providers (Open-Meteo, MET Norway, NOAA)
 |-- run_backtest.py             # Backtest CLI
 |-- example_betting_workflow.py # End-to-end worked example
 |-- quickstart.py               # Quick demo (no scraped data required)
 |-- monitor.py                  # Watch scraping progress
 |-- COMMANDS.md                 # Complete CLI and SQL reference
+|-- WEATHER_TOOLS.md            # Weather analysis documentation
 `-- CONTRIBUTING.md             # Development workflow and standards
 ```
 
@@ -388,6 +391,21 @@ python rank_stage.py paris-nice 2026 1 --save         # persist ranking to DB
 Combines up to six pre-race signals (specialty scores with finish-type blending, cross-race recent form, historical stage results, frailty estimates, tactical HMM state, GC relevance) into softmax probabilities over the full startlist. Uphill finish detection adjusts specialty blending and applies power-to-weight for mountain stages. Joins live Betclic odds, computes edge in basis points, and sizes stakes via half-Kelly. Signals with no data are excluded; weights renormalize automatically.
 
 Full documentation: [`docs/RANKING.md`](docs/RANKING.md).
+
+### ITT Weather Analysis (Strategy 6)
+
+**Completely free - no API key required.** Analyzes wind conditions for Individual Time Trials to find value based on start time advantages.
+
+```bash
+# Auto-fetch from free providers (Open-Meteo/MET Norway/NOAA)
+python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
+
+# Manual entry for race day updates (no internet needed)
+python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1 \
+    --manual "14:00:5.2@180,15:00:6.8@200,16:00:4.1@220"
+```
+
+Outputs time deltas (seconds gained/lost vs neutral conditions), advantage scores per rider, and BACK/FADE recommendations. A 10-30 second wind advantage can be the difference between winning and placing. Full documentation: [`WEATHER_TOOLS.md`](WEATHER_TOOLS.md).
 
 ### Fit models and generate signals (multi-strategy workflow)
 
@@ -481,6 +499,11 @@ python -c "import sqlite3; conn = sqlite3.connect('data/cycling.db'); print(conn
 python rank_stage.py paris-nice 2026 1
 python rank_stage.py paris-nice 2026 1 --run-models --save
 python rank_stage.py paris-nice 2026 3 --top 20
+
+# Weather analysis (FREE - no API key)
+python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
+python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1 \
+    --manual "14:00:5.2@180,15:00:6.8@200,16:00:4.1@220"
 
 # Models and workflow
 python quickstart.py

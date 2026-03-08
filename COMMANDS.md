@@ -11,12 +11,13 @@ Complete reference for every CLI entry point, database operation, and maintenanc
 3. [Betclic Odds Scraping](#3-betclic-odds-scraping)
 4. [Betting Workflow](#4-betting-workflow)
 5. [Stage Ranking](#5-stage-ranking)
-6. [Backtesting](#6-backtesting)
-7. [Database Administration](#7-database-administration)
-8. [Testing](#8-testing)
-9. [Monitoring](#9-monitoring)
-10. [Scheduled Automation](#10-scheduled-automation)
-11. [Git Workflow](#11-git-workflow)
+6. [Weather Analysis (ITT)](#6-weather-analysis-itt-wind-arbitrage)
+7. [Backtesting](#7-backtesting)
+8. [Database Administration](#8-database-administration)
+9. [Testing](#9-testing)
+10. [Monitoring](#10-monitoring)
+11. [Scheduled Automation](#11-scheduled-automation)
+12. [Git Workflow](#12-git-workflow)
 
 ---
 
@@ -306,7 +307,59 @@ ORDER BY CAST(rank_position AS INTEGER);
 
 ---
 
-## 6. Backtesting
+## 6. Weather Analysis (ITT Wind Arbitrage)
+
+Strategy 6 implementation - analyzes wind conditions for Individual Time Trials to find riders with advantageous/disadvantaged start times. **Completely free - no API key required.**
+
+### Quick ITT Analysis
+
+```bash
+# Auto-fetch from free providers (Open-Meteo/MET Norway/NOAA)
+python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
+
+# European race (uses MET Norway - very accurate)
+python weather_race_analyzer.py --race paris-nice --year 2026 --stage 1
+
+# Specify course bearing (0=North, 90=East, 180=South, 270=West)
+python weather_race_analyzer.py --race tour-de-france --year 2025 --stage 21 --bearing 180
+```
+
+### Manual Forecast Entry (No Internet)
+
+```bash
+# Enter forecast manually - perfect for race day updates
+python weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1 \
+    --manual "14:00:5.2@180,15:00:6.8@200,16:00:4.1@220"
+
+# Format: HH:MM:windspeed@direction
+# Example: 14:00:5.2@180 = 2pm, 5.2 m/s wind from 180 degrees (South)
+```
+
+### Understanding Output
+
+| Metric | What it means |
+|--------|---------------|
+| **Time Delta** | Seconds gained/lost vs neutral conditions (negative = faster) |
+| **Advantage Score** | 0-100 scale, >60 = good conditions, <40 = poor conditions |
+| **Spread** | Max time difference between any two start times (>15s = strong opportunity) |
+| **BACK list** | Riders with tailwind advantage - potential value bets |
+| **FADE list** | Riders with headwind disadvantage - potential lays |
+
+### Free Weather Providers (No API Key)
+
+The system automatically selects the best free provider:
+
+| Provider | Coverage | Best For |
+|----------|----------|----------|
+| **MET Norway** | Europe | Tirreno, Paris-Nice, Giro, Vuelta |
+| **NOAA** | USA | Tour of California, Tour of Utah |
+| **Open-Meteo** | Global | Everywhere else |
+
+All providers are completely free with no registration required.
+
+---
+
+## 7. Backtesting
 
 ### Run full walk-forward backtest (all strategies)
 
@@ -349,7 +402,7 @@ frailty         72      4    5.6%   1.4%   136.8%   1686.74   15.0%     0.077
 
 ---
 
-## 7. Database Administration
+## 8. Database Administration
 
 ### Connect to the database
 
@@ -470,7 +523,7 @@ sqlite3 data/cycling.db < genqirue/data/schema_extensions.sql
 
 ---
 
-## 8. Testing
+## 9. Testing
 
 ### Run all tests
 
@@ -502,7 +555,7 @@ pytest tests/betting/ -v
 
 ---
 
-## 9. Monitoring
+## 10. Monitoring
 
 ### Scraping progress
 
@@ -534,7 +587,7 @@ Edit `pipeline/runner.py` and change the logging level from `INFO` to `DEBUG`. T
 
 ---
 
-## 10. Scheduled Automation
+## 11. Scheduled Automation
 
 ### PCS scraper — cron (Linux/macOS)
 
@@ -567,7 +620,7 @@ See `.github/workflows/scrape.yml` — triggered daily at 06:00 UTC and on manua
 
 ---
 
-## 11. Git Workflow
+## 12. Git Workflow
 
 ### Daily development
 
