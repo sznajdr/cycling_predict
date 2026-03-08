@@ -39,11 +39,11 @@ def show_race_picker():
     conn.close()
     
     print("\n" + "="*60)
-    print("🏁 AVAILABLE RACES")
+    print("AVAILABLE RACES")
     print("="*60)
     
     for i, race in enumerate(races, 1):
-        print(f"{i}. {race[1]} {race[2]} - {race[4]} stages, {race[5]} riders")
+        print(f"{i}. {race[1].encode('ascii', errors='ignore').decode()} {race[2]} - {race[4]} stages, {race[5]} riders")
     
     print("\nEnter race number (or 0 to exit): ", end="")
     choice = input().strip()
@@ -73,7 +73,7 @@ def show_stages(race_id, race_name):
     conn.close()
     
     print("\n" + "="*60)
-    print(f"📍 {race_name} - STAGES")
+    print(f"STAGES for {race_name}")
     print("="*60)
     
     for stage in stages:
@@ -139,6 +139,9 @@ def scrape_live(pcs_slug, year, stage_num):
 
 def show_live_race(pcs_slug, year, stage_num, race_name):
     """Show live race view."""
+    import os
+    import time
+    
     print("\n" + "="*60)
     print(f"📊 {race_name} - Stage {stage_num} LIVE VIEW")
     print("="*60)
@@ -147,7 +150,6 @@ def show_live_race(pcs_slug, year, stage_num, race_name):
     try:
         while True:
             # Clear screen (Windows)
-            import os
             os.system('cls' if os.name == 'nt' else 'clear')
             
             print("\n" + "="*60)
@@ -161,11 +163,14 @@ def show_live_race(pcs_slug, year, stage_num, race_name):
             if error:
                 print(f"\n⚠️  Error: {error}")
                 print(f"URL: https://www.procyclingstats.com/race/{pcs_slug}/{year}/stage-{stage_num}")
+                if "403" in str(error):
+                    print("\nNOTE: PCS is blocking automated requests (Cloudflare protection)")
+                    print("📌 Open the URL manually in your browser for live timing")
             elif live_data:
                 if live_data['is_live']:
-                    print("\n🔴 RACE IS LIVE!")
+                    print("\n*** RACE IS LIVE! ***")
                 else:
-                    print("\n⏳ Race not live yet or finished")
+                    print("\nRace not live yet or finished")
                 
                 print(f"\nLive Results (Top 20):")
                 print("-"*60)
@@ -178,7 +183,7 @@ def show_live_race(pcs_slug, year, stage_num, race_name):
                 else:
                     print("No results data available yet...")
                 
-                print(f"\n🔄 Refreshing in 30 seconds...")
+                print(f"\nRefreshing in 30 seconds...")
                 print("Press Ctrl+C to stop")
             
             time.sleep(30)
@@ -213,8 +218,8 @@ def show_startlist(race_id):
     print("-"*80)
     
     for rider in riders:
-        name = rider[0][:28]
-        team = rider[2][:23] if rider[2] else ""
+        name = rider[0][:28].encode('ascii', errors='ignore').decode()
+        team = (rider[2][:23] if rider[2] else "").encode('ascii', errors='ignore').decode()
         hills = rider[4] or 0
         sprint = rider[5] or 0
         print(f"{name:<30} {team:<25} {hills:<8} {sprint:<8}")
@@ -224,9 +229,9 @@ def main():
     """Main menu."""
     while True:
         print("\n" + "="*60)
-        print("🚴‍♂️ CYCLING PREDICT - LIVE CONSOLE VIEW")
+        print("CYCLING PREDICT - LIVE CONSOLE VIEW")
         print("="*60)
-        print("\n1. Pick Race & Watch Live")
+        print("\n1. Pick Race and Watch Live")
         print("2. View Startlist")
         print("3. Exit")
         print("\nChoice: ", end="")
@@ -248,7 +253,7 @@ def main():
                 input()
         
         elif choice == "3" or choice == "0":
-            print("\n👋 Goodbye!")
+            print("\nGoodbye!")
             break
 
 
