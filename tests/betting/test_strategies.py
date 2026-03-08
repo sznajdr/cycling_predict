@@ -222,7 +222,7 @@ class TestWeatherSPDE:
         result = model.calculate_fair_time_difference(early, late)
         
         assert 'delta_t_seconds' in result
-        assert 'favors' in result
+        assert 'uncertainty' in result
 
 
 class TestRobustKelly:
