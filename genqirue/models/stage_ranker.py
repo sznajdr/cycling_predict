@@ -109,6 +109,16 @@ class StageRankingResult:
     def save_to_db(self, conn: sqlite3.Connection) -> int:
         """Persist ranking to strategy_outputs. Returns number of rows inserted."""
         computed_at_str = self.computed_at.isoformat()
+        
+        # Delete existing data for this stage/strategy to avoid stale data accumulation
+        conn.execute(
+            """
+            DELETE FROM strategy_outputs
+            WHERE strategy_name = 'stage_ranking' AND stage_id = ?
+            """,
+            (self.stage_id,),
+        )
+        
         rows = []
         for rs in self.riders:
             latent = {
@@ -138,7 +148,7 @@ class StageRankingResult:
             ))
         conn.executemany(
             """
-            INSERT OR IGNORE INTO strategy_outputs
+            INSERT OR REPLACE INTO strategy_outputs
                 (strategy_name, rider_id, stage_id, win_prob, win_prob_std,
                  edge_bps, expected_value, latent_states_json, computed_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
