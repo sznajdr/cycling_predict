@@ -27,8 +27,8 @@ WEIGHTS: Dict[str, Dict[str, float]] = {
     'flat':     {'specialty': 0.30, 'historical': 0.25, 'frailty': 0.15, 'tactical': 0.10, 'gc_relevance': 0.05, 'form': 0.15},
     'hilly':    {'specialty': 0.25, 'historical': 0.25, 'frailty': 0.15, 'tactical': 0.10, 'gc_relevance': 0.10, 'form': 0.15},
     'mountain': {'specialty': 0.20, 'historical': 0.20, 'frailty': 0.15, 'tactical': 0.10, 'gc_relevance': 0.20, 'form': 0.15},
-    'itt':      {'specialty': 0.40, 'historical': 0.25, 'frailty': 0.15, 'tactical': 0.00, 'gc_relevance': 0.05, 'form': 0.15},
-    'ttt':      {'specialty': 0.30, 'historical': 0.25, 'frailty': 0.15, 'tactical': 0.00, 'gc_relevance': 0.10, 'form': 0.20},
+    'itt':      {'specialty': 0.85, 'historical': 0.05, 'frailty': 0.05, 'tactical': 0.00, 'gc_relevance': 0.00, 'form': 0.05},
+    'ttt':      {'specialty': 0.75, 'historical': 0.10, 'frailty': 0.05, 'tactical': 0.00, 'gc_relevance': 0.05, 'form': 0.05},
 }
 
 # Power-to-weight adjustment proxy for mountain stages
@@ -39,8 +39,8 @@ TEMPERATURE_TARGET: Dict[str, tuple] = {
     'flat':     (0.12, 0.22),
     'hilly':    (0.10, 0.18),
     'mountain': (0.10, 0.18),
-    'itt':      (0.15, 0.25),
-    'ttt':      (0.05, 0.15),
+    'itt':      (0.25, 0.45),  # ITT: clear favorites can have higher win probs
+    'ttt':      (0.10, 0.20),  # TTT: slightly higher than before
 }
 
 # PCS specialty column per normalized stage type
@@ -344,15 +344,26 @@ class StageRankingModel:
         mn, mx = min(vals), max(vals)
         rng = mx - mn
 
+        normalized: Dict[int, float] = {}
+        for rid, score in raw.items():
+            if rng > 0:
+                normalized[rid] = (score - mn) / rng
+            else:
+                normalized[rid] = 0.5
+        
+        # --- For ITT/TTT: apply power transformation to amplify top-end differences ---
+        # Squaring the normalized scores gives more separation to elite specialists
+        if stage_type in ('itt', 'ttt'):
+            for rid in normalized:
+                normalized[rid] = normalized[rid] ** 2
+        
         result: Dict[int, Optional[float]] = {}
         for r in riders:
             rid = r['rider_id']
             if rid not in raw:
                 result[rid] = None
-            elif rng > 0:
-                result[rid] = (raw[rid] - mn) / rng
             else:
-                result[rid] = 0.5  # all riders tied
+                result[rid] = normalized[rid]
         return result
 
     def _compute_historical_signals(

@@ -555,6 +555,11 @@ python scripts/rank_stage.py paris-nice 2026 1
 python scripts/rank_stage.py paris-nice 2026 1 --run-models --save
 python scripts/rank_stage.py paris-nice 2026 3 --top 20
 
+# H2H matchup predictions
+python scripts/h2h.py paris-nice 2026 2 -m "Zingle vs Godon"
+python scripts/h2h.py paris-nice 2026 2 -m "Lamperti vs Das Feld"
+python scripts/h2h.py tirreno-adriatico 2026 1 -f matchups.txt
+
 # Weather analysis (FREE - no API key)
 python scripts/weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1
 python scripts/weather_race_analyzer.py --race tirreno-adriatico --year 2026 --stage 1 \

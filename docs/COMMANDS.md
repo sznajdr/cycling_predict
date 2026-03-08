@@ -11,13 +11,14 @@ Complete reference for every CLI entry point, database operation, and maintenanc
 3. [Betclic Odds Scraping](#3-betclic-odds-scraping)
 4. [Betting Workflow](#4-betting-workflow)
 5. [Stage Ranking](#5-stage-ranking)
-6. [Weather Analysis (ITT)](#6-weather-analysis-itt-wind-arbitrage)
-7. [Backtesting](#7-backtesting)
-8. [Database Administration](#8-database-administration)
-9. [Testing](#9-testing)
-10. [Monitoring](#10-monitoring)
-11. [Scheduled Automation](#11-scheduled-automation)
-12. [Git Workflow](#12-git-workflow)
+6. [Head-to-Head (H2H) Matchup Predictions](#6-head-to-head-h2h-matchup-predictions)
+7. [Weather Analysis (ITT)](#7-weather-analysis-itt-wind-arbitrage)
+8. [Backtesting](#8-backtesting)
+9. [Database Administration](#9-database-administration)
+10. [Testing](#10-testing)
+11. [Monitoring](#11-monitoring)
+12. [Scheduled Automation](#12-scheduled-automation)
+13. [Git Workflow](#13-git-workflow)
 
 ---
 
@@ -231,83 +232,71 @@ Pre-race ranking that combines up to six signals (specialty with finish-type ble
 
 Full documentation: [`docs/RANKING.md`](docs/RANKING.md).
 
-### Basic usage
+---
+
+## 6. Head-to-Head (H2H) Matchup Predictions
+
+Quick H2H probability calculator for betting matchups. Supports individual riders vs individual riders, or riders vs "The Field" (Das Feld).
+
+### Single Matchup
 
 ```bash
-# Rank all riders for Stage 1
-python scripts/rank_stage.py paris-nice 2026 1
-
-# Show only top 20
-python scripts/rank_stage.py paris-nice 2026 3 --top 20
-
-# Custom DB path
-python rank_stage.py paris-nice 2026 1 --db path/to/custom.db
+python scripts/h2h.py paris-nice 2026 2 -m "Zingle vs Godon"
 ```
 
-### Fit frailty + tactical models before ranking
+### Multiple Matchups
 
 ```bash
-python scripts/rank_stage.py paris-nice 2026 1 --run-models
+python scripts/h2h.py paris-nice 2026 2 \
+    -m "Zingle vs Godon" \
+    -m "Girmay vs Fretin" \
+    -m "Lamperti vs Braet"
 ```
 
-Loads all historical years from the DB, fits `FastFrailtyEstimator` and `SimpleTacticalDetector`, writes results to `rider_frailty` and `tactical_states`, then ranks. Use this once per race before the first stage to populate the model tables.
+### The Field Matchups
 
-### Persist ranking to the database
+Bet on whether a specific rider wins, or anyone else (the field):
 
 ```bash
-python scripts/rank_stage.py paris-nice 2026 1 --save
+python scripts/h2h.py paris-nice 2026 2 -m "Lamperti vs Das Feld"
 ```
 
-Inserts one row per rider into `strategy_outputs`. Query with:
+### From File
 
-```sql
-SELECT rider_name, model_prob, back_odds, edge_bps, kelly_pct
-FROM strategy_outputs
-WHERE strategy_name = 'stage_ranking'
-  AND stage_id = (
-      SELECT rs.id FROM race_stages rs
-      JOIN races r ON rs.race_id = r.id
-      WHERE r.pcs_slug = 'paris-nice' AND r.year = 2026
-        AND rs.stage_number = 1
-  )
-ORDER BY CAST(rank_position AS INTEGER);
+Create a file `matchups.txt`:
+```
+Zingle vs Godon
+Girmay vs Fretin
+Ayuso vs Vingegaard
 ```
 
-### Combined: models + rank + save
+Run:
+```bash
+python scripts/h2h.py paris-nice 2026 2 -f matchups.txt
+```
+
+### Interactive Mode
 
 ```bash
-python scripts/rank_stage.py paris-nice 2026 1 --run-models --save
+python scripts/h2h.py paris-nice 2026 2
+> Zingle vs Godon
+> Girmay vs Das Feld
+> done
 ```
 
-### Inspect model table state
+### Different Races
 
-```sql
--- Frailty estimates per rider
-SELECT rider_id, frailty_estimate, hidden_form_prob, computed_at
-FROM rider_frailty
-ORDER BY hidden_form_prob DESC
-LIMIT 20;
+```bash
+# Tirreno Stage 1 ITT
+python scripts/h2h.py tirreno-adriatico 2026 1 -m "Ganna vs Hayter"
 
--- Tactical states from the most recent model run
-SELECT rider_id, stage_id, decoded_state, contesting_prob, preserving_prob, computed_at
-FROM tactical_states
-ORDER BY computed_at DESC
-LIMIT 20;
-
--- Saved rankings for a stage
-SELECT rank_position, rider_name, model_prob, back_odds, edge_bps, kelly_pct,
-       json_extract(latent_states_json, '$.specialty') AS specialty,
-       json_extract(latent_states_json, '$.historical') AS historical,
-       json_extract(latent_states_json, '$.form') AS form,
-       json_extract(latent_states_json, '$.is_uphill_finish') AS uphill_finish
-FROM strategy_outputs
-WHERE strategy_name = 'stage_ranking'
-ORDER BY CAST(rank_position AS INTEGER);
+# Paris-Nice Stage 5
+python scripts/h2h.py paris-nice 2026 5 -m "Vingegaard vs Ayuso"
 ```
 
 ---
 
-## 6. Weather Analysis (ITT Wind Arbitrage)
+## 7. Weather Analysis (ITT Wind Arbitrage)
 
 Strategy 6 implementation - analyzes wind conditions for Individual Time Trials to find riders with advantageous/disadvantaged start times. **Completely free - no API key required.**
 
@@ -359,7 +348,7 @@ All providers are completely free with no registration required.
 
 ---
 
-## 7. Backtesting
+## 8. Backtesting
 
 ### Run full walk-forward backtest (all strategies)
 
@@ -402,7 +391,7 @@ frailty         72      4    5.6%   1.4%   136.8%   1686.74   15.0%     0.077
 
 ---
 
-## 8. Database Administration
+## 9. Database Administration
 
 ### Connect to the database
 
@@ -523,7 +512,7 @@ sqlite3 data/cycling.db < genqirue/data/schema_extensions.sql
 
 ---
 
-## 9. Testing
+## 10. Testing
 
 ### Run all tests
 
@@ -555,7 +544,7 @@ pytest tests/betting/ -v
 
 ---
 
-## 10. Monitoring
+## 11. Monitoring
 
 ### Scraping progress
 
@@ -587,7 +576,7 @@ Edit `pipeline/runner.py` and change the logging level from `INFO` to `DEBUG`. T
 
 ---
 
-## 11. Scheduled Automation
+## 12. Scheduled Automation
 
 ### PCS scraper — cron (Linux/macOS)
 
@@ -620,7 +609,7 @@ See `.github/workflows/scrape.yml` — triggered daily at 06:00 UTC and on manua
 
 ---
 
-## 12. Git Workflow
+## 13. Git Workflow
 
 ### Daily development
 
