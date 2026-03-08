@@ -1,0 +1,88 @@
+# Early 2026 Season Races
+# Add these to your main races.yaml or scrape separately
+# These provide form data for Paris-Nice predictions
+
+year: 2026
+
+races:
+  # January - Australian races
+  - name: Tour Down Under
+    pcs_slug: tour-down-under
+    type: stage_race
+    history_years: [2026]
+
+  - name: Cadel Evans Great Ocean Road Race
+    pcs_slug: great-ocean-road-race
+    type: one_day
+    history_years: [2026]
+
+  # February - Middle East and European opening
+  - name: UAE Tour
+    pcs_slug: uae-tour
+    type: stage_race
+    history_years: [2026]
+
+  - name: Omloop Het Nieuwsblad
+    pcs_slug: omloop-het-nieuwsblad
+    type: one_day
+    history_years: [2026]
+
+  - name: Strade Bianche
+    pcs_slug: strade-bianche
+    type: one_day
+    history_years: [2026]
+
+  - name: Paris-Nice
+    pcs_slug: paris-nice
+    type: stage_race
+    history_years: [2026]
+
+  - name: Tirreno-Adriatico
+    pcs_slug: tirreno-adriatico
+    type: stage_race
+    history_years: [2026]
+
+  - name: Milano-Sanremo
+    pcs_slug: milano-sanremo
+    type: one_day
+    history_years: [2026]
+
+  # March - Classic season
+  - name: E3 Saxo Classic
+    pcs_slug: e3-harelbeke
+    type: one_day
+    history_years: [2026]
+
+  - name: Gent-Wevelgem
+    pcs_slug: gent-wevelgem
+    type: one_day
+    history_years: [2026]
+
+  - name: Tour of Flanders
+    pcs_slug: ronde-van-vlaanderen
+    type: one_day
+    history_years: [2026]
+
+  # Portugal (happens early)
+  - name: Volta ao Algarve
+    pcs_slug: volta-ao-algarve
+    type: stage_race
+    history_years: [2026]
+
+  # Spain
+  - name: Vuelta a Andalucia
+    pcs_slug: vuelta-a-andalucia
+    type: stage_race
+    history_years: [2026]
+
+  # France
+  - name: Tour de la Provence
+    pcs_slug: tour-de-la-provence
+    type: stage_race
+    history_years: [2026]
+
+  # Belgium
+  - name: Kuurne-Brussel-Kuurne
+    pcs_slug: kuurne-brussel-kuurne
+    type: one_day
+    history_years: [2026]
