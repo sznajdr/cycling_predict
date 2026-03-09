@@ -49,23 +49,20 @@ Each signal is a float in [0, 1] or `None` if data is unavailable.
 
 **Source:** `riders.sp_sprint / sp_hills / sp_climber / sp_time_trial` (PCS specialty scores, 0–100).
 
-**Column used per stage type (flat-finish):**
+**Column used per stage type:**
 
-| Stage type | PCS column |
-|-----------|-----------|
-| `flat` | `sp_sprint` |
-| `hilly` | `sp_hills` |
-| `mountain` | `sp_climber` |
-| `itt` / `ttt` | `sp_time_trial` |
-
-**Finish-type blending.** When `race_climbs` data shows the nearest climb ends ≤ 2 km from the finish (uphill finish), the specialty columns are blended:
-
-| Stage type | Uphill finish | Blend |
-|-----------|--------------|-------|
-| `flat` | Yes | 55% `sp_sprint` + 45% `sp_climber` |
-| `hilly` | Yes | 50% `sp_hills` + 50% `sp_climber` |
+| Stage type | Finish | Blend |
+|-----------|--------|-------|
+| `flat` | Flat finish | 65% `sp_sprint` + 35% `sp_one_day_races` |
+| `flat` | Uphill finish | 55% `sp_sprint` + 45% `sp_climber` |
+| `hilly` | Flat finish | 100% `sp_hills` |
+| `hilly` | Uphill finish | 50% `sp_hills` + 50% `sp_climber` |
 | `mountain` | any | 100% `sp_climber` |
 | `itt` / `ttt` | any | 100% `sp_time_trial` |
+
+**Why blend `sp_one_day_races` on flat stages?** PCS `sp_sprint` is accumulated exclusively from bunch-sprint stage wins and top placings. Puncher/classics riders — who regularly win flat stages in reduced groups or two-up finishes — accumulate most of their points under `sp_one_day_races` instead. Using `sp_sprint` alone would rank a rider like Girmay (sp_sprint ≈ 1500, sp_one_day ≈ 3300) far below pure bunch sprinters with identical or lower real-world win rates. The 65/35 blend corrects this without removing the primacy of raw sprint power.
+
+**Finish-type blending.** When `race_climbs` data shows the nearest climb ends ≤ 2 km from the finish (uphill finish), the specialty columns are blended as shown above — `sp_sprint` is replaced with a climber component for flat/uphill finishes.
 
 **Stage topology detection.** The model detects uphill finishes using stage distance data and climb positions:
 
@@ -212,11 +209,9 @@ A stage is flagged as "uphill finish" when:
 
 ### Specialty Blending by Topology
 
-When uphill finish is detected, specialty columns are blended:
-
-| Stage Type | Standard | Uphill Finish Blend |
-|-----------|----------|---------------------|
-| `flat` | 100% `sp_sprint` | 55% `sp_sprint` + 45% `sp_climber` |
+| Stage Type | Flat Finish | Uphill Finish |
+|-----------|-------------|---------------|
+| `flat` | 65% `sp_sprint` + 35% `sp_one_day_races` | 55% `sp_sprint` + 45% `sp_climber` |
 | `hilly` | 100% `sp_hills` | 50% `sp_hills` + 50% `sp_climber` |
 | `mountain` | 100% `sp_climber` | 100% `sp_climber` (no change) |
 

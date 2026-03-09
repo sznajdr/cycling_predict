@@ -448,7 +448,7 @@ python scripts/rank_stage.py paris-nice 2026 3 --top 20       # top 20 only
 python scripts/rank_stage.py paris-nice 2026 1 --save         # persist ranking to DB
 ```
 
-Combines up to six pre-race signals (specialty scores with finish-type blending, cross-race recent form, historical stage results, frailty estimates, tactical HMM state, GC relevance) into softmax probabilities over the full startlist. Uphill finish detection adjusts specialty blending and applies power-to-weight for mountain stages. Joins live Betclic odds, computes edge in basis points, and sizes stakes via half-Kelly. Signals with no data are excluded; weights renormalize automatically.
+Combines up to six pre-race signals (specialty scores with finish-type blending, cross-race recent form, historical stage results, frailty estimates, tactical HMM state, GC relevance) into softmax probabilities over the full startlist. Flat stages blend `sp_sprint` (65%) with `sp_one_day_races` (35%) so that puncher/classics riders who win flat stages via one-day points (e.g. Girmay) are not systematically undervalued relative to pure bunch sprinters. Uphill finish detection adjusts specialty blending and applies power-to-weight for mountain stages. Joins live Betclic odds, computes edge in basis points, and sizes stakes via half-Kelly. Signals with no data are excluded; weights renormalize automatically.
 
 Full documentation: [`docs/RANKING.md`](docs/RANKING.md).
 

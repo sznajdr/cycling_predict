@@ -312,6 +312,12 @@ class StageRankingModel:
             blend = [('sp_sprint', 0.55), ('sp_climber', 0.45)]
         elif stage_type == 'hilly' and is_uphill_finish:
             blend = [('sp_hills', 0.50), ('sp_climber', 0.50)]
+        elif stage_type == 'flat':
+            # Blend sprint and one-day-race specialty for flat stages.
+            # PCS sp_sprint is career-accumulated on pure bunch-sprint stages, which
+            # systematically undervalues puncher/classics riders (e.g. Girmay, Trentin)
+            # who win flat stages but accumulate points via sp_one_day_races instead.
+            blend = [('sp_sprint', 0.65), ('sp_one_day_races', 0.35)]
         else:
             blend = [(_SPECIALTY_COL.get(stage_type, 'sp_sprint'), 1.0)]
 
