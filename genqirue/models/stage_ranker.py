@@ -86,21 +86,19 @@ _GRAND_TOUR_SLUGS: frozenset = frozenset({
     'vuelta-a-espana',
 })
 
-# Minimum total quality weight AND minimum distinct race slugs a rider must
-# accumulate for the quality-weighted specialty to override static PCS specialty.
-#
-# _MIN_QUALITY_WEIGHT = 3.0: requires ~3 full WT stage results, or proportionally
-# more from lower-tier races. Prevents a single good result from dominating
-# (e.g. one top-10 at Paris-Nice = weight 1.0 < threshold → static fallback).
-#
-# _MIN_DISTINCT_SLUGS = 2: rider must have results from at least 2 different race
-# circuits (not just different years of the same race). Ensures cross-race signal
-# rather than race-specific history, which the historical signal already captures.
-#
-# NOTE: With current DB (only Paris-Nice + Tirreno), many riders will fall back
-# to static PCS specialty. This is intentional — quality specialty reaches its
-# full potential once Grand Tour data is scraped via scripts/fetch_calibration_data.py.
-_MIN_QUALITY_WEIGHT: float = 3.0
+# Only results where the rider finished in the top fraction of the field count
+# toward quality specialty. This ensures GC riders who merely survive flat stages
+# (rank 50/150 = 67th percentile) contribute nothing to sprint specialty, while
+# actual sprint contenders (rank 1-30) score highly.
+# 0.20 = top 20% of field (≈ top 30 in a 150-rider field, matching CONTENTION_TOP_N).
+_QUALITY_TOP_FRACTION: float = 0.20
+
+# Minimum total quality weight a rider must accumulate from top-fraction finishes
+# to use quality specialty. Set to 2.0 so a rider needs the equivalent of at least
+# ~2 UWT-level top-20% finishes across different races before quality specialty
+# activates. This prevents riders with 1-3 top results at a single race from
+# dominating the normalized score (e.g., a Giro top-5 + one small-race result).
+_MIN_QUALITY_WEIGHT: float = 2.0
 _MIN_DISTINCT_SLUGS: int = 2
 
 # Stage types to query for each model stage type when computing quality specialty
@@ -442,6 +440,11 @@ class StageRankingModel:
         type_ph = ','.join('?' * len(query_types))
         rider_ph = ','.join('?' * len(rider_ids))
 
+        # Only count finishes in the top QUALITY_TOP_FRACTION of the field.
+        # rank_pct is rescaled so that 1st place = ~1.0 and the threshold
+        # position = 0.0. Results outside the threshold are excluded entirely
+        # so that GC riders surviving flat stages don't accrue sprint specialty.
+        top_frac = _QUALITY_TOP_FRACTION
         rows = conn.execute(f"""
             WITH field_sizes AS (
                 SELECT rr2.stage_id, COUNT(*) AS field_size
@@ -454,7 +457,7 @@ class StageRankingModel:
                 rr.rider_id,
                 r.pcs_slug,
                 r.uci_tour,
-                (1.0 - CAST(rr.rank AS REAL) / fs.field_size) AS rank_pct
+                1.0 - CAST(rr.rank AS REAL) / (fs.field_size * {top_frac}) AS rank_pct
             FROM rider_results rr
             JOIN race_stages rs ON rr.stage_id = rs.id
             JOIN races r       ON rs.race_id  = r.id
@@ -462,6 +465,7 @@ class StageRankingModel:
             WHERE rs.stage_type IN ({type_ph})
               AND rr.result_category = 'stage'
               AND CAST(rr.rank AS INTEGER) > 0
+              AND CAST(rr.rank AS INTEGER) <= CAST(fs.field_size * {top_frac} AS INTEGER)
               AND rr.rider_id IN ({rider_ph})
         """, list(query_types) + rider_ids).fetchall()
 
@@ -949,9 +953,22 @@ class StageRankingModel:
                     norm_lookup[norm] = float(odds)
 
         for rs in rider_signals:
+            # Pass 1: exact lowercase match
             odds = exact_lookup.get(rs.rider_name.lower())
+            # Pass 2: NFKD accent-stripped match
             if odds is None:
                 odds = norm_lookup.get(_normalize_name(rs.rider_name))
+            # Pass 3: reversed-words match for "LASTNAME Firstname" PCS format.
+            # PCS now returns rider names as "VLASOV Aleksandr"; Betclic stores
+            # them as "Alexander Vlasov". Reversing gives "Aleksandr VLASOV" →
+            # normalised "aleksandr vlasov" which may match the Betclic entry.
+            if odds is None:
+                parts = rs.rider_name.split()
+                if len(parts) >= 2:
+                    reversed_name = ' '.join(parts[1:] + [parts[0]])
+                    odds = exact_lookup.get(reversed_name.lower())
+                    if odds is None:
+                        odds = norm_lookup.get(_normalize_name(reversed_name))
             if odds is not None and odds > 1.0:
                 rs.back_odds = odds
                 rs.implied_prob = 1.0 / odds

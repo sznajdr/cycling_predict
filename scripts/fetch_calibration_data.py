@@ -21,7 +21,7 @@ from pipeline.queue import init_queue, add_job
 # Calibration targets
 # ---------------------------------------------------------------------------
 
-_CALIBRATION_YEARS = list(range(2020, 2026))  # 2020–2025 inclusive
+_CALIBRATION_YEARS = list(range(2023, 2026))  # 2020–2025 inclusive
 
 CALIBRATION_TARGETS = [
     # --- Grand Tours ---
