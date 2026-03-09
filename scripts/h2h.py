@@ -221,10 +221,13 @@ Examples:
     
     # Check data freshness
     if computed_at:
-        from datetime import datetime
+        from datetime import datetime, timezone
         try:
             computed_dt = datetime.fromisoformat(computed_at.replace('Z', '+00:00'))
-            age_hours = (datetime.now(computed_dt.tzinfo) - computed_dt).total_seconds() / 3600
+            # computed_at is stored as UTC (datetime.utcnow()); compare to UTC now
+            if computed_dt.tzinfo is None:
+                computed_dt = computed_dt.replace(tzinfo=timezone.utc)
+            age_hours = (datetime.now(timezone.utc) - computed_dt).total_seconds() / 3600
             if age_hours > 1:
                 print(f"\nWARNING: Data is {age_hours:.1f} hours old. Run with --save to refresh:")
                 print(f"  python scripts/rank_stage.py {args.race} {args.year} {args.stage} --save\n")
