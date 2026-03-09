@@ -58,6 +58,60 @@ CONTENTION_TOP_N: Dict[str, int] = {
 }
 _CONTENTION_FLOOR = 0.0  # non-contenders floored to this raw_score
 
+# ---------------------------------------------------------------------------
+# Race quality weights for specialty signal calibration
+# ---------------------------------------------------------------------------
+
+# Maps races.uci_tour → quality multiplier for weighted rank percentile
+UCI_CATEGORY_WEIGHTS: Dict[str, float] = {
+    '2.UWT': 1.00,   # World Tour stage race (TdF, Paris-Nice, Tirreno...)
+    '1.UWT': 0.95,   # World Tour one-day (Roubaix, MSR, Flanders...)
+    '2.Pro': 0.50,   # ProSeries stage race
+    '1.Pro': 0.45,   # ProSeries one-day
+    '2.HC':  0.30,   # HC stage race (legacy UCI code)
+    '1.HC':  0.25,   # HC one-day
+    '2.1':   0.18,   # Continental stage race
+    '1.1':   0.15,   # Continental one-day
+    '2.2':   0.08,   # Sub-continental stage race
+    '1.2':   0.06,   # Sub-continental one-day
+    'NC':    0.12,   # National championship
+    'CC':    0.08,   # Continental championship
+}
+_DEFAULT_UCI_WEIGHT: float = 0.05   # unrecognised or missing UCI code
+
+# Grand Tour slugs receive a 1.3× premium on top of their base UCI weight
+_GRAND_TOUR_SLUGS: frozenset = frozenset({
+    'tour-de-france',
+    'giro-d-italia',
+    'vuelta-a-espana',
+})
+
+# Minimum total quality weight AND minimum distinct race slugs a rider must
+# accumulate for the quality-weighted specialty to override static PCS specialty.
+#
+# _MIN_QUALITY_WEIGHT = 3.0: requires ~3 full WT stage results, or proportionally
+# more from lower-tier races. Prevents a single good result from dominating
+# (e.g. one top-10 at Paris-Nice = weight 1.0 < threshold → static fallback).
+#
+# _MIN_DISTINCT_SLUGS = 2: rider must have results from at least 2 different race
+# circuits (not just different years of the same race). Ensures cross-race signal
+# rather than race-specific history, which the historical signal already captures.
+#
+# NOTE: With current DB (only Paris-Nice + Tirreno), many riders will fall back
+# to static PCS specialty. This is intentional — quality specialty reaches its
+# full potential once Grand Tour data is scraped via scripts/fetch_calibration_data.py.
+_MIN_QUALITY_WEIGHT: float = 3.0
+_MIN_DISTINCT_SLUGS: int = 2
+
+# Stage types to query for each model stage type when computing quality specialty
+_QUALITY_STAGE_TYPES: Dict[str, tuple] = {
+    'flat':     ('flat', 'cobbles', 'road', 'transit'),
+    'hilly':    ('hilly',),
+    'mountain': ('mountain',),
+    'itt':      ('itt', 'prologue'),
+    'ttt':      ('ttt',),
+}
+
 # PCS specialty column per normalized stage type
 _SPECIALTY_COL: Dict[str, str] = {
     'flat':     'sp_sprint',
@@ -230,7 +284,15 @@ class StageRankingModel:
         is_uphill_finish, _ = self._get_finish_type(conn, stage_id)
 
         # Compute all six signals
-        specialty_scores  = self._compute_specialty_signals(riders, stage_type, is_uphill_finish)
+        # Quality-weighted specialty (from actual DB results, weighted by race UCI category).
+        # Falls back to static PCS specialty for riders with insufficient quality data.
+        quality_specialty = self._compute_quality_specialty_signals(conn, riders, stage_type, is_uphill_finish)
+        static_specialty  = self._compute_specialty_signals(riders, stage_type, is_uphill_finish)
+        specialty_scores: Dict[int, Optional[float]] = {}
+        for r in riders:
+            rid = r['rider_id']
+            qs = quality_specialty.get(rid)
+            specialty_scores[rid] = qs if qs is not None else static_specialty.get(rid)
         historical_scores = self._compute_historical_signals(conn, riders, race_slug, year, stage_type)
         frailty_scores    = self._compute_frailty_signals(conn, riders)
         tactical_scores   = self._compute_tactical_signals(conn, riders, race_slug, year, stage_number, stage_type)
@@ -325,6 +387,123 @@ class StageRankingModel:
     # ------------------------------------------------------------------
     # Signal computation
     # ------------------------------------------------------------------
+
+    def _compute_quality_specialty_signals(
+        self, conn, riders: list, stage_type: str, is_uphill_finish: bool
+    ) -> Dict[int, Optional[float]]:
+        """Quality-weighted specialty from actual DB stage results.
+
+        For each rider, computes a weighted-average rank percentile across all
+        historical stages of the matching type. Results are weighted by the UCI
+        category of the race (2.UWT > 1.UWT > 2.Pro > ...) with an additional
+        1.3× premium for Grand Tour stages.
+
+        REQUIRES GRAND TOUR DATA: With only WT stage races (Paris-Nice, Tirreno)
+        in the DB, quality specialty degenerates into a race-specific historical
+        signal — the same information already captured by the historical signal —
+        and cannot distinguish a world-class sprinter from a consistent finisher
+        at one specific race. Returns None for all riders (triggering static
+        PCS specialty fallback) until at least 200 Grand Tour stage results are
+        present in the DB. Run scripts/fetch_calibration_data.py to seed the
+        scraping queue, then python -m pipeline.runner to collect the data.
+
+        Riders with total quality weight < _MIN_QUALITY_WEIGHT or results from
+        fewer than _MIN_DISTINCT_SLUGS race circuits also fall back to static.
+        """
+        from collections import defaultdict
+
+        # Gate: require substantial Grand Tour data before activating.
+        gt_row = conn.execute("""
+            SELECT COUNT(*) AS n FROM rider_results rr
+            JOIN race_stages rs ON rr.stage_id = rs.id
+            JOIN races r ON rs.race_id = r.id
+            WHERE r.pcs_slug IN ('tour-de-france', 'giro-d-italia', 'vuelta-a-espana')
+              AND rr.result_category = 'stage'
+              AND CAST(rr.rank AS INTEGER) > 0
+        """).fetchone()
+        if (gt_row['n'] if gt_row else 0) < 200:
+            logger.debug(
+                "Quality specialty inactive: only %d Grand Tour stage results in DB "
+                "(need 200+). Falling back to static PCS specialty. "
+                "Run scripts/fetch_calibration_data.py to seed the scraping queue.",
+                gt_row['n'] if gt_row else 0,
+            )
+            return {r['rider_id']: None for r in riders}
+
+        query_types = _QUALITY_STAGE_TYPES.get(stage_type, ('flat',))
+        # For uphill-finish flat stages also include hilly results
+        if stage_type == 'flat' and is_uphill_finish:
+            query_types = query_types + ('hilly',)
+
+        rider_ids = [r['rider_id'] for r in riders]
+        if not rider_ids:
+            return {}
+
+        type_ph = ','.join('?' * len(query_types))
+        rider_ph = ','.join('?' * len(rider_ids))
+
+        rows = conn.execute(f"""
+            WITH field_sizes AS (
+                SELECT rr2.stage_id, COUNT(*) AS field_size
+                FROM rider_results rr2
+                WHERE rr2.result_category = 'stage'
+                  AND CAST(rr2.rank AS INTEGER) > 0
+                GROUP BY rr2.stage_id
+            )
+            SELECT
+                rr.rider_id,
+                r.pcs_slug,
+                r.uci_tour,
+                (1.0 - CAST(rr.rank AS REAL) / fs.field_size) AS rank_pct
+            FROM rider_results rr
+            JOIN race_stages rs ON rr.stage_id = rs.id
+            JOIN races r       ON rs.race_id  = r.id
+            JOIN field_sizes fs ON fs.stage_id = rr.stage_id
+            WHERE rs.stage_type IN ({type_ph})
+              AND rr.result_category = 'stage'
+              AND CAST(rr.rank AS INTEGER) > 0
+              AND rr.rider_id IN ({rider_ph})
+        """, list(query_types) + rider_ids).fetchall()
+
+        weighted_sum: Dict[int, float] = defaultdict(float)
+        weight_total: Dict[int, float] = defaultdict(float)
+        distinct_slugs: Dict[int, set] = defaultdict(set)
+
+        for row in rows:
+            uci = row['uci_tour'] or ''
+            w = UCI_CATEGORY_WEIGHTS.get(uci, _DEFAULT_UCI_WEIGHT)
+            if row['pcs_slug'] in _GRAND_TOUR_SLUGS:
+                w *= 1.3
+            rp = float(row['rank_pct'])
+            rid = row['rider_id']
+            weighted_sum[rid] += rp * w
+            weight_total[rid] += w
+            distinct_slugs[rid].add(row['pcs_slug'])
+
+        quality_scores: Dict[int, float] = {
+            rid: weighted_sum[rid] / tw
+            for rid, tw in weight_total.items()
+            if tw >= _MIN_QUALITY_WEIGHT
+            and len(distinct_slugs.get(rid, set())) >= _MIN_DISTINCT_SLUGS
+        }
+
+        if not quality_scores:
+            return {r['rider_id']: None for r in riders}
+
+        vals = list(quality_scores.values())
+        mn, mx = min(vals), max(vals)
+        rng = mx - mn
+
+        result: Dict[int, Optional[float]] = {}
+        for r in riders:
+            rid = r['rider_id']
+            if rid not in quality_scores:
+                result[rid] = None
+            elif rng > 0:
+                result[rid] = (quality_scores[rid] - mn) / rng
+            else:
+                result[rid] = 0.5
+        return result
 
     def _compute_specialty_signals(
         self, riders: list, stage_type: str, is_uphill_finish: bool = False

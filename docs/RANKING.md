@@ -47,7 +47,26 @@ Each signal is a float in [0, 1] or `None` if data is unavailable.
 
 ### Signal 1: Specialty
 
-**Source:** `riders.sp_sprint / sp_hills / sp_climber / sp_time_trial` (PCS specialty scores, 0–100).
+**Primary source:** Quality-weighted rank percentile computed from `rider_results` in the DB, with each result weighted by the UCI category of the race it came from (`races.uci_tour`). Falls back to static PCS specialty scores (`riders.sp_sprint` etc.) when insufficient quality data is present.
+
+**Quality weight by UCI category:**
+
+| UCI code | Race type | Weight |
+|---------|-----------|--------|
+| `2.UWT` | World Tour stage race | 1.00 |
+| `1.UWT` | World Tour one-day | 0.95 |
+| Grand Tours (TdF/Giro/Vuelta) | — | 1.00 × 1.3 bonus |
+| `2.Pro` | ProSeries stage race | 0.50 |
+| `1.Pro` | ProSeries one-day | 0.45 |
+| `2.1` / `1.1` | Continental | 0.18 / 0.15 |
+| `2.2` / `1.2` | Sub-continental | 0.08 / 0.06 |
+| `NC` | National championship | 0.12 |
+
+**Activation gate:** Quality specialty only activates when at least 200 Grand Tour stage results are present in the DB. Without Grand Tour data, sprint-stage results from only Paris-Nice and Tirreno degenerate into a race-specific historical signal (the same information already captured by Signal 2), making it unable to distinguish Girmay from a consistent finisher at those two races. The gate ensures the signal only contributes when it carries cross-race, quality-differentiated information.
+
+Run `python scripts/fetch_calibration_data.py` to see how much Grand Tour data is needed, then `python -m pipeline.runner` to collect it. Once active, this signal correctly ranks Girmay above Coquard on flat stages — their Grand Tour flat-stage win rates are the primary discriminator.
+
+**Static fallback source:** `riders.sp_sprint / sp_hills / sp_climber / sp_time_trial` (PCS specialty scores, 0–100). Used when quality specialty is inactive or a rider has insufficient data (< `_MIN_QUALITY_WEIGHT = 3.0` total weight, or results from < `_MIN_DISTINCT_SLUGS = 2` race circuits).
 
 **Column used per stage type:**
 
