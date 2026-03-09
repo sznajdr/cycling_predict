@@ -273,6 +273,40 @@ CREATE TABLE IF NOT EXISTS backtest_results (
 CREATE INDEX IF NOT EXISTS idx_backtest_strategy ON backtest_results(strategy_name);
 
 -- ============================================================
+-- CALIBRATION: Platt scaling parameters for stage ranking model
+-- ============================================================
+
+-- Stores per-stage-type calibration parameters fitted by
+-- scripts/calibrate_stage_model.py. Two parameters are stored:
+--
+--   T_star    : MLE softmax temperature (replaces binary-search target-range)
+--   platt_a   : Logistic coefficient for Platt sigmoid
+--   platt_b   : Logistic intercept for Platt sigmoid
+--
+-- Application in stage_ranker.py:
+--   raw_calib[i] = sigmoid(platt_a * logit(softmax(T_star * scores)[i]) + platt_b)
+--   model_prob[i] = raw_calib[i] / sum(raw_calib)
+--
+-- Fitted on historical stages (year < current year) using PCS specialty
+-- blends as the input signal. Multiple rows allowed (one per fit run);
+-- the model always uses the most recent row for each stage_type.
+
+CREATE TABLE IF NOT EXISTS platt_calibration (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage_type    TEXT NOT NULL,         -- 'flat', 'hilly', 'mountain', 'itt'
+    T_star        REAL NOT NULL,         -- MLE temperature (Phase 1)
+    platt_a       REAL,                  -- Logistic coefficient (Phase 2, NULL if not fitted)
+    platt_b       REAL,                  -- Logistic intercept  (Phase 2, NULL if not fitted)
+    n_stages      INTEGER,               -- number of historical stages used
+    n_samples     INTEGER,               -- number of (stage, rider) pairs used in Platt fit
+    log_loss      REAL,                  -- log-loss on calibration set (lower = better)
+    brier_score   REAL,                  -- Brier score on calibration set
+    fitted_at     TEXT NOT NULL          -- ISO UTC timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_platt_stage_type ON platt_calibration(stage_type, fitted_at);
+
+-- ============================================================
 -- SYSTEM: Model Versions and Freshness
 -- ============================================================
 

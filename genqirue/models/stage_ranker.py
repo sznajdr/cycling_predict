@@ -324,10 +324,17 @@ class StageRankingModel:
         # keep a small non-zero share — breakaways can still produce surprises.
         self._apply_field_reduction(rider_signals, stage_type)
 
-        # Softmax with temperature calibration
+        # Softmax with temperature calibration, then optional Platt sigmoid
         scores = np.array([r.raw_score for r in rider_signals])
-        T = self._calibrate_temperature(scores, stage_type)
+        calib = self._load_calibration(conn, stage_type)
+        if calib:
+            T = calib['T_star']
+            logger.debug("Using calibrated T*=%.3f for %s stages.", T, stage_type)
+        else:
+            T = self._calibrate_temperature(scores, stage_type)
         probs = self._softmax(T * scores)
+        if calib and calib.get('platt_a') is not None:
+            probs = self._apply_platt(probs, calib['platt_a'], calib['platt_b'])
         for i, rs in enumerate(rider_signals):
             rs.model_prob = float(probs[i])
 
@@ -913,8 +920,60 @@ class StageRankingModel:
         e = np.exp(x_shifted)
         return e / e.sum()
 
+    def _load_calibration(self, conn, stage_type: str) -> Dict:
+        """Load the most recent Platt calibration params from DB for this stage type.
+
+        Returns a dict with 'T_star', 'platt_a', 'platt_b' (platt_* may be None),
+        or an empty dict if no calibration has been fitted yet.
+        Run scripts/calibrate_stage_model.py to populate.
+        """
+        try:
+            row = conn.execute("""
+                SELECT T_star, platt_a, platt_b
+                FROM platt_calibration
+                WHERE stage_type = ?
+                ORDER BY fitted_at DESC
+                LIMIT 1
+            """, (stage_type,)).fetchone()
+            if row is None:
+                return {}
+            return {
+                'T_star': float(row['T_star']),
+                'platt_a': float(row['platt_a']) if row['platt_a'] is not None else None,
+                'platt_b': float(row['platt_b']) if row['platt_b'] is not None else None,
+            }
+        except Exception:
+            return {}
+
+    def _apply_platt(self, probs: np.ndarray, a: float, b: float) -> np.ndarray:
+        """Apply Platt sigmoid calibration then renormalise to sum=1.
+
+        For each rider with prob > 1e-7: raw_calib = sigmoid(a*logit(p) + b).
+        Non-contenders with p <= 1e-7 keep their original tiny probability.
+        Renormalise so the result sums to 1.
+
+        With a≈0.96, b≈-0.15 (typical flat-stage calibration), the transform
+        is nearly identity but slightly flattens the top-end probabilities,
+        making the leader's share more realistic.
+        """
+        from scipy.special import expit, logit
+        calibrated = probs.copy()
+        mask = probs > 1e-7
+        if mask.any():
+            lp = logit(np.clip(probs[mask], 1e-7, 1 - 1e-7))
+            calibrated[mask] = expit(a * lp + b)
+        total = calibrated.sum()
+        if total > 0:
+            calibrated /= total
+        return calibrated
+
     def _calibrate_temperature(self, scores: np.ndarray, stage_type: str) -> float:
-        """Binary search for T so that max(softmax(T*scores)) ≈ midpoint of target range."""
+        """Binary search for T so that max(softmax(T*scores)) ≈ midpoint of target range.
+
+        Used as a fallback when no Platt calibration exists in the DB.
+        Run scripts/calibrate_stage_model.py to generate data-driven T* values
+        that replace this heuristic.
+        """
         if scores.std() < 1e-8:
             return 1.0
         lo_prob, hi_prob = TEMPERATURE_TARGET.get(stage_type, (0.10, 0.20))
