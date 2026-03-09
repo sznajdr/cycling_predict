@@ -235,6 +235,33 @@ Capped at [0.80, 1.30]. A 58 kg climber gets ~12% boost vs a 73 kg rider with id
 
 ---
 
+## 3b. Field Reduction
+
+On flat and hilly stages, the softmax runs over the full startlist (150+ riders). Without any filtering, climbers, pure GC domestiques, and time-trial specialists dilute probability mass away from sprint and puncher contenders — artificially compressing the favorites' model probabilities.
+
+**Field reduction** floors non-contenders' raw scores so they retain only a negligible share of probability mass. This lets the temperature calibration concentrate realistic probability on the riders who actually contest the finish.
+
+### Contention pools
+
+| Stage type | Contenders (by specialty rank) | Non-contenders |
+|-----------|-------------------------------|----------------|
+| `flat` | Top 35 by blended `sp_sprint`/`sp_one_day_races` | floored to 0 raw score |
+| `hilly` | Top 30 by `sp_hills` | floored to 0 raw score |
+| `mountain` | All riders | — |
+| `itt` / `ttt` | All riders | — |
+
+Non-contenders are **not completely zeroed out** — they receive a small probability share via the softmax denominator. A surprise breakaway winner from outside the contention pool is possible; it is simply priced as a rare event rather than an equally-likely outcome.
+
+### Effect on probability range
+
+After field reduction, the effective field on a flat stage drops from ~154 to ~35 competitors. Combined with the updated temperature calibration targets, the top flat-stage favorite can now reach **27–30%** (vs. the previous 17% ceiling), while realistic second and third choices sit in the **8–15%** range.
+
+### Contention flag in DB
+
+When saved with `--save`, each rider's `latent_states_json` includes `"is_contender": true/false`, enabling post-hoc analysis of which riders were in the contention pool.
+
+---
+
 ## 4. Weight Matrix
 
 Each stage type has a fixed set of base weights that sum to 1.0:
@@ -267,15 +294,17 @@ prob_i = exp(T · score_i) / Σ_j exp(T · score_j)
 
 The model calibrates `T` via binary search to hit a target top-probability range per stage type:
 
-| Stage type | Target range | Midpoint |
-|-----------|-------------|---------|
-| `flat` | 12% – 22% | 17% |
-| `hilly` | 10% – 18% | 14% |
-| `mountain` | 10% – 18% | 14% |
-| `itt` | 15% – 25% | 20% |
-| `ttt` | 5% – 15% | 10% |
+| Stage type | Target range | Midpoint | Notes |
+|-----------|-------------|---------|-------|
+| `flat` | 20% – 35% | 27.5% | Raised from 12–22%; field reduction shrinks effective pool |
+| `hilly` | 15% – 28% | 21.5% | Raised from 10–18%; field reduction shrinks effective pool |
+| `mountain` | 10% – 18% | 14% | No field reduction; all riders compete |
+| `itt` | 25% – 45% | 35% | Clear favorites have high separation |
+| `ttt` | 10% – 20% | 15% | Team effort; wider distribution |
 
 TTT has the flattest distribution because all team members share the stage result — the "winner" is effectively the whole team.
+
+The flat/hilly targets were raised in conjunction with field reduction: with only ~35 effective competitors instead of 154, a realistic top-probability ceiling is 25–35% rather than 12–22%.
 
 The binary search uses the log-sum-exp trick for numerical stability and converges in 60 iterations.
 
@@ -558,6 +587,8 @@ The model never fails on missing data — it degrades gracefully:
 | Rider `weight_kg` unknown | power-to-weight factor = 1.0 (no adjustment) |
 | Rider not matched in `bookmaker_odds_latest` | `back_odds = None`; edge and Kelly not shown |
 | All signals `None` for a rider | `raw_score = 0.0`; rider contributes uniformly to softmax |
+| Field ≤ CONTENTION_TOP_N for this stage type | Field reduction skipped; all riders compete equally |
+| Rider outside contention pool (flat/hilly) | `raw_score` floored; `is_contender = False` in DB JSON |
 
 When signals are inactive, the Signals line in the output marks them explicitly:
 

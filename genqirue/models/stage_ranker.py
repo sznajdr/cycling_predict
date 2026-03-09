@@ -36,12 +36,27 @@ MEDIAN_WEIGHT_KG = 65.0
 
 # (min_top_prob, max_top_prob) — bisect T until max(softmax) hits midpoint
 TEMPERATURE_TARGET: Dict[str, tuple] = {
-    'flat':     (0.12, 0.22),
-    'hilly':    (0.10, 0.18),
+    'flat':     (0.20, 0.35),  # raised: field reduction shrinks effective field
+    'hilly':    (0.15, 0.28),  # raised: field reduction shrinks effective field
     'mountain': (0.10, 0.18),
     'itt':      (0.25, 0.45),  # ITT: clear favorites can have higher win probs
     'ttt':      (0.10, 0.20),  # TTT: slightly higher than before
 }
+
+# Field reduction: on bunch-sprint / puncher stages, only the top-N riders
+# by specialty are treated as realistic contenders. Riders outside the
+# contention pool have their raw_score floored to _CONTENTION_FLOOR so they
+# retain a small non-zero probability (surprise breakaways exist) without
+# diluting mass away from real sprint candidates.
+# 0 = no field reduction (mountain / ITT / TTT).
+CONTENTION_TOP_N: Dict[str, int] = {
+    'flat':     35,
+    'hilly':    30,
+    'mountain': 0,
+    'itt':      0,
+    'ttt':      0,
+}
+_CONTENTION_FLOOR = 0.0  # non-contenders floored to this raw_score
 
 # PCS specialty column per normalized stage type
 _SPECIALTY_COL: Dict[str, str] = {
@@ -82,6 +97,7 @@ class RiderSignals:
     form_signal: Optional[float] = None  # None = no races in last 90 days
     form_n_races: int = 0                # how many recent stages contributed
     no_history_flag: bool = False        # True = median fallback used
+    is_contender: bool = True            # False = floored by field reduction
     raw_score: float = 0.0
     model_prob: float = 0.0
     implied_prob: Optional[float] = None
@@ -131,6 +147,7 @@ class StageRankingResult:
                 'form_n_races': rs.form_n_races,
                 'raw_score': rs.raw_score,
                 'no_history_flag': rs.no_history_flag,
+                'is_contender': rs.is_contender,
                 'temperature': self.temperature,
                 'stage_type': self.stage_type,
                 'is_uphill_finish': self.is_uphill_finish,
@@ -241,6 +258,11 @@ class StageRankingModel:
             )
             rs.raw_score = self._compute_raw_score(rs, weights)
             rider_signals.append(rs)
+
+        # Field reduction: floor non-contenders on sprint/puncher stages so
+        # probability mass concentrates on realistic winners. Non-contenders
+        # keep a small non-zero share — breakaways can still produce surprises.
+        self._apply_field_reduction(rider_signals, stage_type)
 
         # Softmax with temperature calibration
         scores = np.array([r.raw_score for r in rider_signals])
@@ -656,6 +678,35 @@ class StageRankingModel:
     # ------------------------------------------------------------------
     # Score, softmax, temperature calibration
     # ------------------------------------------------------------------
+
+    def _apply_field_reduction(
+        self, rider_signals: List[RiderSignals], stage_type: str
+    ) -> None:
+        """Floor non-contenders' raw scores on sprint/puncher stages.
+
+        For flat and hilly stages, only the top CONTENTION_TOP_N riders by
+        specialty signal are treated as realistic stage winners. All others
+        receive raw_score = _CONTENTION_FLOOR so they retain a tiny non-zero
+        probability (surprise breakaways happen) without diluting probability
+        mass away from real contenders.
+
+        Mountain / ITT / TTT: no filtering — any GC rider can attack.
+        """
+        top_n = CONTENTION_TOP_N.get(stage_type, 0)
+        if top_n <= 0 or len(rider_signals) <= top_n:
+            return
+
+        sorted_by_spec = sorted(
+            rider_signals,
+            key=lambda r: r.specialty_signal if r.specialty_signal is not None else 0.0,
+            reverse=True,
+        )
+        contender_ids = {r.rider_id for r in sorted_by_spec[:top_n]}
+
+        for rs in rider_signals:
+            if rs.rider_id not in contender_ids:
+                rs.is_contender = False
+                rs.raw_score = _CONTENTION_FLOOR
 
     def _compute_raw_score(self, rs: RiderSignals, weights: Dict[str, float]) -> float:
         signal_map = {
