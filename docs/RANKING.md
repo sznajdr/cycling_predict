@@ -283,7 +283,7 @@ Non-contenders are **not completely zeroed out** — they receive a small probab
 
 ### Effect on probability range
 
-After field reduction, the effective field on a flat stage drops from ~154 to ~35 competitors. Combined with the updated temperature calibration targets, the top flat-stage favorite can now reach **27–30%** (vs. the previous 17% ceiling), while realistic second and third choices sit in the **8–15%** range.
+After field reduction and Platt calibration (T*≈5 for flat stages), the top flat-stage favourite typically reaches **5–8%** — matching the historical win rate for the strongest sprinter. Second and third choices sit at **3–6%**, reflecting that sprint finishes are genuinely unpredictable. Pre-calibration the top probability was an over-concentrated 27–30%.
 
 ### Contention flag in DB
 
@@ -309,7 +309,7 @@ When signals are missing (see [Section 12](#12-graceful-degradation)), weights a
 
 ---
 
-## 4. Softmax Temperature Calibration
+## 4. Softmax Temperature Calibration + Platt Scaling
 
 Raw scores are converted to win probabilities via softmax:
 
@@ -321,21 +321,48 @@ prob_i = exp(T · score_i) / Σ_j exp(T · score_j)
 - `T` close to 0 → nearly uniform distribution
 - `T` large → near-deterministic (winner takes almost all probability mass)
 
-The model calibrates `T` via binary search to hit a target top-probability range per stage type:
+### Data-driven temperature (Platt calibration)
 
-| Stage type | Target range | Midpoint | Notes |
-|-----------|-------------|---------|-------|
-| `flat` | 20% – 35% | 27.5% | Raised from 12–22%; field reduction shrinks effective pool |
-| `hilly` | 15% – 28% | 21.5% | Raised from 10–18%; field reduction shrinks effective pool |
-| `mountain` | 10% – 18% | 14% | No field reduction; all riders compete |
-| `itt` | 25% – 45% | 35% | Clear favorites have high separation |
-| `ttt` | 10% – 20% | 15% | Team effort; wider distribution |
+`T` is fitted via **maximum-likelihood estimation** on historical stage outcomes rather than a heuristic target range. The calibration script (`scripts/calibrate_stage_model.py`) runs the full model on all historical stages with startlist data, then finds the T* that maximises:
 
-TTT has the flattest distribution because all team members share the stage result — the "winner" is effectively the whole team.
+```
+T* = argmax_T  Σ_stages  log( softmax(T · raw_scores_stage)[winner] )
+```
 
-The flat/hilly targets were raised in conjunction with field reduction: with only ~35 effective competitors instead of 154, a realistic top-probability ceiling is 25–35% rather than 12–22%.
+Fitted values from 343 historical stages (2022–2025):
 
-The binary search uses the log-sum-exp trick for numerical stability and converges in 60 iterations.
+| Stage type | T* (MLE) | log-LL / stage | vs random | Notes |
+|-----------|----------|---------------|-----------|-------|
+| `flat`     | **4.90** | −4.05 | +23% | 153 stages used |
+| `hilly`    | **3.53** | −4.49 | +11% | 63 stages |
+| `mountain` | **9.30** | −3.53 | +42% | GC relevance very predictive |
+| `itt`      | **12.74**| −2.71 | +83% | Specialty near-deterministic |
+
+The pre-calibration heuristic used T≈20 for flat stages (binary search to hit 20–35% top probability). MLE calibration finds T*≈5, giving a much flatter, more realistic distribution — the favourite on a flat stage should win roughly 5–7% of the time, not 25–30%.
+
+### Platt sigmoid (absolute probability correction)
+
+After applying softmax(T* × scores), a **Platt sigmoid** adjusts absolute probabilities:
+
+```
+raw_calib_i = sigmoid(a · logit(prob_i) + b)
+model_prob_i = raw_calib_i / Σ_j raw_calib_j     (renormalise)
+```
+
+Fitted values confirm the model's relative ordering is already well-calibrated (a ≈ 0.96, very close to 1), with a small negative intercept (b ≈ −0.15) correcting slight base-rate overconfidence. The sigmoid transform is nearly identity for most probability values.
+
+### Fallback
+
+If no calibration exists in the `platt_calibration` table (e.g. fresh DB), the model falls back to the legacy binary search targeting:
+
+| Stage type | Target range | Notes |
+|-----------|-------------|-------|
+| `flat` | 20% – 35% | field reduction lowers effective pool |
+| `hilly` | 15% – 28% | — |
+| `mountain` | 10% – 18% | — |
+| `itt` | 25% – 45% | ITT favorites clearly separated |
+
+Run `python scripts/calibrate_stage_model.py` after adding new historical data to refresh the calibration.
 
 ---
 
